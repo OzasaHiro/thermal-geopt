@@ -1,0 +1,31 @@
+experiment:
+  name: finetune_d1_tiny
+  seed: 42
+
+data:
+  task: d1_solid_conduction
+  train_cases: 10
+  val_cases: 5
+  test_cases: 5
+  points_per_case: 8192
+
+model:
+  backbone: transolver
+  n_hidden: 256
+  n_layers: 8
+  n_heads: 8
+  slice_num: 32
+
+loss:
+  temperature_mse: 1.0
+  max_temperature: 0.1
+  hotspot_weighted: 0.0
+
+train:
+  epochs: 2
+  batch_size: 1
+  lr: 0.001
+  weight_decay: 0.00001
+  scheduler: warmup_cosine
+  amp: true
+  amp_dtype: bfloat16

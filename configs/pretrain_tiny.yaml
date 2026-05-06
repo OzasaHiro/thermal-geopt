@@ -1,0 +1,39 @@
+experiment:
+  name: pretrain_tiny
+  seed: 42
+
+data:
+  source: cadquery
+  shapes: 32
+  episodes_per_shape: 8
+  points_per_episode: 2048
+  surface_points: 256
+  storage: on_the_fly
+
+thermal_prompt:
+  alpha_range: [0.05, 2.0]
+  k_range: [0.1, 10.0]
+  boundary_modes:
+    absorbing: 0.4
+    reflecting: 0.4
+    partial_absorbing: 0.2
+  rbf_patches: 8
+
+brownian:
+  tau: 2
+  dt_range: [0.01, 0.05]
+
+model:
+  backbone: transolver
+  n_hidden: 256
+  n_layers: 8
+  n_heads: 8
+  slice_num: 32
+
+train:
+  epochs: 2
+  batch_size: 1
+  lr: 0.001
+  weight_decay: 0.00001
+  amp: true
+  amp_dtype: bfloat16

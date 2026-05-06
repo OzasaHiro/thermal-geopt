@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local environments
+.venv/
+venv/
+env/
+.env
+.env.*
+
+# Large experiment data
+data/meshes_raw/**
+data/meshes_processed/**
+data/pretrain_zarr/**
+data/downstream_raw/**
+data/downstream_npz/**
+outputs/checkpoints/**
+outputs/logs/**
+outputs/figures/**
+*.pt
+*.pth
+*.ckpt
+*.npy
+*.npz
+*.zarr/
+*.vtp
+*.vtu
+*.stl
+*.obj
+*.step
+*.STEP
+*.foam
+
+# Keep directory placeholders
+!data/**/.gitkeep
+!outputs/**/.gitkeep
+
+# Reports generated from runs
+*.log
+*.tmp
+
+# OS/editor
+.DS_Store
+.idea/
+.vscode/
