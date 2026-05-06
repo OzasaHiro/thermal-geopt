@@ -44,6 +44,7 @@ outputs/figures/**
 # Reports generated from runs
 *.log
 *.tmp
+configs/*_smoke_split.json
 
 # OS/editor
 .DS_Store

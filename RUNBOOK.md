@@ -143,3 +143,17 @@ Git/GitHub:
 2. `preprocess_meshes.py` にinside/outside判定、volume/shell sampling、nearest-boundary validationを追加する。
 3. `generate_pretrain_episodes.py` をshard size指定、fp16/Zarr圧縮、checksum保存に対応させる。
 4. D1 solid conduction用の最小FEM/FVMまたはOpenFOAM `laplacianFoam` writerを作る。
+
+軽量smokeをまとめて実行する場合:
+
+```bash
+../../.venv/bin/python scripts/run_smoke_pipeline.py --overwrite
+```
+
+時間がかかるデータ生成は `docs/heavy_run_commands.md` のコマンドを使って手元で実行する。
+
+追加で整備済み:
+
+- `scripts/generate_d1_conduction_cases.py`: OpenFOAMなしでD1 downstream配管を確認するsource/sink proxy case生成。物理解ではなくsmoke/proxy用途。
+- `scripts/build_splits.py`: manifestから決定的なtrain/val/test split JSONを生成。
+- `scripts/inspect_artifacts.py`: `.npz`、`manifest.json`、`.zarr` のshape/dtype/finite check。
