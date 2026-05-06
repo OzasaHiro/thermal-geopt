@@ -62,3 +62,84 @@ OzasaHiro/thermal-geopt
 ```
 
 `gh` は導入済みだが未ログイン。認証とGitHub repo作成手順は `docs/github_setup.md` を参照。
+
+## 5. 2026-05-06 実験準備メモ
+
+Git/GitHub:
+
+- `main` は `origin/main` と同期済み。
+- remote: `https://github.com/OzasaHiro/thermal-geopt.git`
+- 初回コミット: `609aa16 Initialize Thermal GeoPT experiment`
+
+環境確認:
+
+```bash
+../../.venv/bin/python scripts/check_environment.py \
+  --transolver-smoke \
+  --points 1024 \
+  --amp \
+  --amp-dtype bfloat16
+```
+
+確認結果:
+
+- Python 3.12.3
+- PyTorch 2.10.0+cu128
+- CUDA 12.8
+- GPU: NVIDIA GeForce RTX 5070 Ti
+- bf16 supported: true
+- GeoPT Transolver smoke: forward/backward成功
+- smoke条件: 1024 points、out_dim 8、bf16 AMP
+- reserved peak memory: 約148 MB
+
+導入済み依存:
+
+- cadquery 2.7.0
+- trimesh 4.12.2
+- zarr 3.2.1
+- pyvista 0.47.1
+- scipy 1.17.1
+
+未導入だが現時点では任意:
+
+- open3d
+
+初期パイプラインsmoke:
+
+```bash
+# 1. TDF/Brownian unit smoke on a sphere
+../../.venv/bin/python scripts/smoke_tdf_brownian.py \
+  --num-points 2048 \
+  --steps 2
+
+# 2. Generate tiny CadQuery thermal shapes
+../../.venv/bin/python scripts/generate_cadquery_shapes.py \
+  --num-per-family 1 \
+  --overwrite
+
+# 3. Preprocess STL meshes into sampled normalized arrays
+../../.venv/bin/python scripts/preprocess_meshes.py \
+  --surface-points 2048 \
+  --overwrite
+
+# 4. Generate tiny pretraining Zarr shards
+../../.venv/bin/python scripts/generate_pretrain_episodes.py \
+  --episodes-per-shape 1 \
+  --points-per-episode 512 \
+  --steps 2 \
+  --overwrite
+```
+
+確認済み成果:
+
+- CadQueryで `channel_block`、`pin_fin`、`plate_fin` の3形状をSTL生成できた。
+- STLを正規化し、各2048 surface pointsの `.npz` へ変換できた。
+- 前処理済み形状3件から、各1 episode、512 points/episode、14 feature channelsのZarr shardを生成できた。
+- 生成データは `.gitignore` 対象で、Git管理対象には入れない。
+
+次の実装候補:
+
+1. `generate_cadquery_shapes.py` を100-300形状規模へ拡張し、manifestにtrain/val/test split候補を出す。
+2. `preprocess_meshes.py` にinside/outside判定、volume/shell sampling、nearest-boundary validationを追加する。
+3. `generate_pretrain_episodes.py` をshard size指定、fp16/Zarr圧縮、checksum保存に対応させる。
+4. D1 solid conduction用の最小FEM/FVMまたはOpenFOAM `laplacianFoam` writerを作る。
