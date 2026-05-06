@@ -157,3 +157,15 @@ Git/GitHub:
 - `scripts/generate_d1_conduction_cases.py`: OpenFOAMなしでD1 downstream配管を確認するsource/sink proxy case生成。物理解ではなくsmoke/proxy用途。
 - `scripts/build_splits.py`: manifestから決定的なtrain/val/test split JSONを生成。
 - `scripts/inspect_artifacts.py`: `.npz`、`manifest.json`、`.zarr` のshape/dtype/finite check。
+- `scripts/train_pretrain.py`: Thermal diffusion feature/TDFを教師にしたTransolver pilot pretraining。
+- `scripts/train_finetune_d1.py`: D1 source/sink proxy temperature predictionのscratch/pretrained fine-tuning。
+- `scripts/evaluate_d1.py`: D1 checkpointまたはmean-temperature baselineの評価JSON生成。
+
+学習smokeで確認済み:
+
+- `train_pretrain.py`: tiny Zarr、128 points、2 episodes、1 epoch、bf16 AMPでcheckpoint生成まで成功。
+- `train_finetune_d1.py`: tiny D1 proxy、scratch/pretrained初期化の両方で1 epoch、checkpoint生成とvalidation評価まで成功。
+- `evaluate_d1.py`: baseline評価とcheckpoint評価の両方でJSON出力まで成功。
+- pilot生成済みartifactでも、pretrain manifest、D1 manifest/split、D1 checkpoint evalを最小設定で読み込み確認済み。
+
+Pilot artifact確認後の次手順は `docs/pilot_training_commands.md` を使う。

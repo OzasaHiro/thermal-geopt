@@ -134,6 +134,18 @@ find data/meshes_processed/cadquery_pilot_300 -name '*.npz' | wc -l
 find data/pretrain_zarr/cadquery_pilot_300_e20_n4096 -name 'shard_*.zarr' -maxdepth 1 | wc -l
 ```
 
-## 5. Git管理
+## 5. Pilot学習
+
+Artifact確認まで終わったら、次は `docs/pilot_training_commands.md` の順に進める。
+
+推奨順:
+
+1. Pretrain smoke
+2. Pretrain pilot
+3. D1 scratch pilot
+4. D1 pretrained pilot
+5. D1 test評価
+
+## 6. Git管理
 
 生成データは `.gitignore` 対象なのでGitに入れない。コード・設定・軽量Markdownだけをコミットする。
