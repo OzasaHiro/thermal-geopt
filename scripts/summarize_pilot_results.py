@@ -146,12 +146,21 @@ Most likely reasons:
 - The pretraining target has 14 TDF/diffusion channels, while D1 predicts 1 temperature channel; shape-incompatible input/output projection tensors are intentionally skipped.
 - Only 2 pretraining epochs and 3 fine-tuning epochs were run, so this is a pipeline pilot, not a final pretraining efficacy result.
 
-## Next Runs
+## Strategy Correction
 
-1. Extend D1 fine-tuning to 10-20 epochs for scratch and pretrained with the same split.
-2. Add a label-scarcity matrix, for example 50/100/300 train cases, because pretraining should matter most when labels are limited.
-3. Move from D1 proxy to a harder D1/D2 target before judging Thermal GeoPT value.
-4. For full pretraining candidates, increase geometry diversity and pretraining epochs only after the label-scarcity comparison is in place.
+This pilot should be treated as a pipeline validation only. Continuing to optimize this same 1200-case D1 proxy split is not the right main test of GeoPT-style pretraining.
+
+GeoPT's core claim is not that a pretrained model always wins on an easy, fully labeled downstream proxy. Its core claim is data-efficient transfer from large-scale dynamics-lifted geometric self-supervision. Therefore the next gate should test label efficiency and pretraining scale, not just longer fine-tuning on the same split.
+
+Recommended next gate:
+
+1. Build label-scarcity downstream splits: 10/25/50/100 train cases, fixed validation/test.
+2. Compare the same Transolver architecture: scratch vs Thermal GeoPT pretrained, with matched point budget and evaluation.
+3. Add at least one pretext ablation before scaling: static TDF-only or Brownian/no-boundary-field.
+4. Use current `cadquery_pilot_300_e20_n4096` only as a lower-bound pretraining run. Move to 500-2,000 shapes and 5k-40k episodes before drawing conclusions about the method.
+5. Do not move to P3/P4 large pretraining unless Thermal GeoPT beats scratch by at least about 10% relative L2 in the 25 or 50 label regime, or shows clearly faster convergence at matched downstream budget.
+
+The current result is therefore not evidence against Thermal GeoPT. It is evidence that this D1 proxy/full-label pilot is too easy and too small to validate GeoPT's intended advantage.
 """
 
 

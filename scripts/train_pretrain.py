@@ -29,6 +29,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--point-budget", type=int, default=2048)
     parser.add_argument("--max-episodes", type=int, default=64)
+    parser.add_argument(
+        "--pretext-ablation",
+        choices=["full", "no_boundary_field", "static_tdf_only"],
+        default="full",
+        help="Select the pretraining target/prompt ablation without regenerating Zarr shards.",
+    )
+    parser.add_argument(
+        "--condition-mode",
+        choices=["auto", "full", "zero_boundary_field", "zero_all"],
+        default="auto",
+        help="Override prompt handling. auto maps from --pretext-ablation.",
+    )
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--weight-decay", type=float, default=1e-5)
     parser.add_argument("--n-hidden", type=int, default=256)
@@ -52,6 +64,8 @@ def main() -> int:
         point_budget=args.point_budget,
         max_episodes=args.max_episodes,
         seed=args.seed,
+        ablation=args.pretext_ablation,
+        condition_mode=None if args.condition_mode == "auto" else args.condition_mode,
     )
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, num_workers=0)
     model_config = {
@@ -77,6 +91,10 @@ def main() -> int:
         "batch_size": args.batch_size,
         "point_budget": args.point_budget,
         "max_episodes": args.max_episodes,
+        "pretext_ablation": args.pretext_ablation,
+        "condition_mode": dataset.condition_mode,
+        "condition_names": dataset.condition_names,
+        "target_names": dataset.target_names,
         "lr": args.lr,
         "weight_decay": args.weight_decay,
         "amp": amp_enabled,

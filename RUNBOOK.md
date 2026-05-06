@@ -169,3 +169,5 @@ Git/GitHub:
 - pilot生成済みartifactでも、pretrain manifest、D1 manifest/split、D1 checkpoint evalを最小設定で読み込み確認済み。
 
 Pilot artifact確認後の次手順は `docs/pilot_training_commands.md` を使う。
+
+GeoPT本来のデータ効率検証へ進む場合は、full-label D1 pilotの延長ではなく `docs/geopt_gate_commands.md` のlabel-scarcity gateを使う。

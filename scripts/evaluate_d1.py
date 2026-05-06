@@ -28,7 +28,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--case-manifest", type=Path, required=True)
     parser.add_argument("--split-path", type=Path)
-    parser.add_argument("--split", choices=("train", "val", "test", "all"), default="all")
+    parser.add_argument("--split", default="all")
     parser.add_argument("--model-dir", type=Path)
     parser.add_argument("--checkpoint-file", default="best_model.pt")
     parser.add_argument("--baseline", choices=("mean_temperature",))

@@ -54,7 +54,7 @@ Only if this gate is positive should we spend time/storage on P3 main pretrainin
 
 ## Immediate Action
 
-The next implementation task should be label-scarcity split generation and an experiment matrix runner/documentation for:
+The next implementation task is now tracked by `docs/geopt_gate_commands.md`: label-scarcity split generation plus an experiment matrix for:
 
 - scratch vs pretrained
 - train sizes 10/25/50/100

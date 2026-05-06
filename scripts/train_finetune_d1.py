@@ -33,6 +33,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--case-manifest", type=Path, default=Path("data/downstream_npz/d1_proxy_pilot_300_c5_n8192/manifest.json"))
     parser.add_argument("--split-path", type=Path)
+    parser.add_argument("--train-split", default="train")
+    parser.add_argument("--val-split", default="val")
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--pretrained-model-dir", type=Path)
     parser.add_argument("--pretrained-checkpoint-file", default="best_model.pt")
@@ -105,7 +107,7 @@ def main() -> int:
     train_dataset = D1ProxyDataset(
         args.case_manifest,
         split_path=args.split_path,
-        split="train" if args.split_path else "all",
+        split=args.train_split if args.split_path else "all",
         point_budget=args.point_budget,
         max_cases=args.max_train_cases,
         seed=args.seed,
@@ -113,7 +115,7 @@ def main() -> int:
     val_dataset = D1ProxyDataset(
         args.case_manifest,
         split_path=args.split_path,
-        split="val" if args.split_path else "all",
+        split=args.val_split if args.split_path else "all",
         point_budget=args.eval_point_budget,
         max_cases=args.max_val_cases,
         seed=args.seed + 10_000,
@@ -149,6 +151,8 @@ def main() -> int:
         "task": "d1_proxy_finetune",
         "case_manifest": str(args.case_manifest),
         "split_path": str(args.split_path) if args.split_path else None,
+        "train_split": args.train_split if args.split_path else "all",
+        "val_split": args.val_split if args.split_path else "all",
         "pretrained_model_dir": str(args.pretrained_model_dir) if args.pretrained_model_dir else None,
         "epochs": args.epochs,
         "batch_size": args.batch_size,
