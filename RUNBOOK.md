@@ -142,7 +142,7 @@ Git/GitHub:
 1. `generate_cadquery_shapes.py` を100-300形状規模へ拡張し、manifestにtrain/val/test split候補を出す。
 2. `preprocess_meshes.py` にinside/outside判定、volume/shell sampling、nearest-boundary validationを追加する。
 3. `generate_pretrain_episodes.py` をshard size指定、fp16/Zarr圧縮、checksum保存に対応させる。
-4. D1 solid conduction用の最小FEM/FVMまたはOpenFOAM `laplacianFoam` writerを作る。
+4. D1 solid conduction用のOpenFOAM Foundation v13 `laplacianFoam` writerを作る。portable FEM/FVMは明示承認がある場合だけの退避策にする。
 
 軽量smokeをまとめて実行する場合:
 

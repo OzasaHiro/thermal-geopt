@@ -53,7 +53,18 @@ The detailed plan defines the paper-level path as:
 
 ### Environment Finding
 
-`laplacianFoam` and `blockMesh` are not currently available on PATH. If OpenFOAM is installed later, the D1 solver pipeline can target `laplacianFoam`. Until then, a portable FEM/FVM-style D1 solver pipeline is needed.
+OpenFOAM Foundation v13 is available on the target machine once `/opt/openfoam13/etc/bashrc` is sourced.
+The following commands have been confirmed by the user:
+
+- `foamVersion`: `OpenFOAM-13`
+- `blockMesh`
+- `snappyHexMesh`
+- `surfaceFeatureExtract`
+- `laplacianFoam`
+- `chtMultiRegionFoam`
+
+Foundation v13 does not provide `foamListApplications`; use `foamInfo <name>` for solver/application checks instead.
+The D1 solver-backed benchmark must therefore target OpenFOAM `laplacianFoam` first. Do not switch to a portable FEM/FVM substitute unless the experiment owner explicitly approves that change.
 
 ## Main Experimental Claim
 
@@ -111,8 +122,8 @@ Boundary:
 
 Implementation options:
 
-1. OpenFOAM `laplacianFoam` path, if OpenFOAM is installed.
-2. Portable FEM/FVM path, if OpenFOAM is unavailable.
+1. OpenFOAM Foundation v13 `laplacianFoam` path.
+2. Portable FEM/FVM path only if explicitly approved as a contingency, not as the default route.
 
 Minimum output schema:
 
