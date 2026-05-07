@@ -12,7 +12,9 @@ trap 'echo "FAILED at line ${LINENO}. See ${LOG_FILE}"' ERR
 PY="${PY:-../../.venv/bin/python}"
 D1_MANIFEST="${D1_MANIFEST:-data/downstream_npz/d1_proxy_pilot_300_c5_n8192/manifest.json}"
 BASE_SPLIT="${BASE_SPLIT:-configs/d1_proxy_pilot_300_c5_n8192_split.json}"
-GATE_SPLIT_PATTERN="${GATE_SPLIT_PATTERN:-outputs/logs/r0_splits/d1_proxy_pilot_300_c5_n8192_label_scarcity_seed{split_seed}.json}"
+if [[ -z "${GATE_SPLIT_PATTERN:-}" ]]; then
+  GATE_SPLIT_PATTERN="outputs/logs/r0_splits/d1_proxy_pilot_300_c5_n8192_label_scarcity_seed{split_seed}.json"
+fi
 GATE_GROUPS="${GATE_GROUPS:-scratch no_boundary_field}"
 TRAIN_SIZES="${TRAIN_SIZES:-50 75 100 125}"
 SPLIT_SEEDS="${SPLIT_SEEDS:-42 43 44 45 46}"
@@ -24,6 +26,10 @@ SKIP_EXISTING="${SKIP_EXISTING:-1}"
 RUN_PREFIX="${RUN_PREFIX:-d1_r0_v2}"
 SUMMARY_JSON="${SUMMARY_JSON:-outputs/logs/r0_replication_summary.json}"
 SUMMARY_MD="${SUMMARY_MD:-docs/r0_replication_results.md}"
+EXPECTED_CASE_COUNT="${EXPECTED_CASE_COUNT:-150}"
+SUMMARY_TITLE="${SUMMARY_TITLE:-R0 Replication Results}"
+SUMMARY_DESCRIPTION="${SUMMARY_DESCRIPTION:-R0 multi-seed label-scarcity replication summary.}"
+SUMMARY_INTERPRETATION_RULE="${SUMMARY_INTERPRETATION_RULE:-Treat the 100-label no-boundary signal as replicated only if the paired run-level improvement is consistently positive, preferably above 10%, across multiple split seeds and remains visible at 125 labels. If the improvement appears only at one split seed or collapses at 75/125 labels, keep the original gate negative and move the emphasis to R1 dynamics-lifted pretraining redesign.}"
 
 for path in "$D1_MANIFEST" "$BASE_SPLIT"; do
   if [[ ! -e "$path" ]]; then
@@ -35,8 +41,8 @@ done
 split_path_for() {
   local split_seed="$1"
   local path="$GATE_SPLIT_PATTERN"
-  path="${path//"{split_seed}"/$split_seed}"
-  path="${path//"{split_seed.json}"/"${split_seed}.json"}"
+  path="${path//\{split_seed.json\}/${split_seed}.json}"
+  path="${path//\{split_seed\}/$split_seed}"
   if [[ "$path" == *"{split_seed"* ]]; then
     path="outputs/logs/r0_splits/d1_proxy_pilot_300_c5_n8192_label_scarcity_seed${split_seed}.json"
   fi
@@ -142,8 +148,11 @@ done
   --train-seeds $TRAIN_SEEDS \
   --eval-pattern "outputs/logs/${RUN_PREFIX}_{group}_split{split_seed}_trainseed{train_seed}_train{train_size}_test_eval.json" \
   --run-pattern "outputs/checkpoints/${RUN_PREFIX}_{group}_split{split_seed}_trainseed{train_seed}_train{train_size}_ep${EPOCHS}" \
-  --expected-case-count 150 \
+  --expected-case-count "$EXPECTED_CASE_COUNT" \
   --expected-point-budget "$POINT_BUDGET" \
+  --title "$SUMMARY_TITLE" \
+  --description "$SUMMARY_DESCRIPTION" \
+  --interpretation-rule "$SUMMARY_INTERPRETATION_RULE" \
   --output-json "$SUMMARY_JSON" \
   --output-md "$SUMMARY_MD"
 

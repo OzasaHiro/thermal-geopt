@@ -47,6 +47,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--allow-missing", action="store_true")
     parser.add_argument("--expected-case-count", type=int, default=150)
     parser.add_argument("--expected-point-budget", type=int, default=4096)
+    parser.add_argument("--title", default="R0 Replication Results")
+    parser.add_argument("--description", default="R0 multi-seed label-scarcity replication summary.")
+    parser.add_argument(
+        "--interpretation-rule",
+        default=(
+            "Treat the 100-label no-boundary signal as replicated only if the paired run-level improvement "
+            "is consistently positive, preferably above 10%, across multiple split seeds and remains visible "
+            "at 125 labels.\n\n"
+            "If the improvement appears only at one split seed or collapses at 75/125 labels, keep the original "
+            "gate negative and move the emphasis to R1 dynamics-lifted pretraining redesign."
+        ),
+    )
     parser.add_argument("--output-json", type=Path, default=Path("outputs/logs/r0_replication_summary.json"))
     parser.add_argument("--output-md", type=Path, default=Path("docs/r0_replication_results.md"))
     return parser.parse_args()
@@ -290,7 +302,9 @@ def build_summary(args: argparse.Namespace) -> dict[str, Any]:
             }
 
     return {
-        "description": "R0 multi-seed label-scarcity replication summary.",
+        "title": args.title,
+        "description": args.description,
+        "interpretation_rule": args.interpretation_rule,
         "eval_pattern": args.eval_pattern,
         "run_pattern": args.run_pattern,
         "train_sizes": args.train_sizes,
@@ -323,9 +337,9 @@ def stat_cell(payload: dict[str, Any], key: str = "relative_l2_mean") -> str:
 def markdown_report(summary: dict[str, Any]) -> str:
     groups = list(summary["groups"])
     lines = [
-        "# R0 Replication Results",
+        f"# {summary.get('title') or 'D1 Transfer Results'}",
         "",
-        "This report summarizes multi-seed R0 label-scarcity replication runs.",
+        str(summary.get("description") or "This report summarizes D1 label-scarcity transfer runs."),
         "",
         f"- split seeds: `{summary['split_seeds']}`",
         f"- train seeds: `{summary['train_seeds']}`",
@@ -385,17 +399,9 @@ def markdown_report(summary: dict[str, Any]) -> str:
                 )
             )
 
-    lines.extend(
-        [
-            "",
-            "## Interpretation Rule",
-            "",
-            "Treat the 100-label no-boundary signal as replicated only if the paired run-level improvement is consistently positive, preferably above 10%, across multiple split seeds and remains visible at 125 labels.",
-            "",
-            "If the improvement appears only at one split seed or collapses at 75/125 labels, keep the original gate negative and move the emphasis to R1 dynamics-lifted pretraining redesign.",
-            "",
-        ]
-    )
+    interpretation = str(summary.get("interpretation_rule") or "").strip()
+    if interpretation:
+        lines.extend(["", "## Interpretation Rule", "", interpretation, ""])
     return "\n".join(lines)
 
 

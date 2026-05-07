@@ -12,7 +12,9 @@ trap 'echo "FAILED at line ${LINENO}. See ${LOG_FILE}"' ERR
 PY="${PY:-../../.venv/bin/python}"
 D1_MANIFEST="${D1_MANIFEST:-data/downstream_npz/d1_proxy_pilot_300_c5_n8192/manifest.json}"
 BASE_SPLIT="${BASE_SPLIT:-configs/d1_proxy_pilot_300_c5_n8192_split.json}"
-GATE_SPLIT_PATTERN="${GATE_SPLIT_PATTERN:-outputs/logs/r0_splits/d1_proxy_pilot_300_c5_n8192_label_scarcity_seed{split_seed}.json}"
+if [[ -z "${GATE_SPLIT_PATTERN:-}" ]]; then
+  GATE_SPLIT_PATTERN="outputs/logs/r0_splits/d1_proxy_pilot_300_c5_n8192_label_scarcity_seed{split_seed}.json"
+fi
 PRETRAIN_FULL="${PRETRAIN_FULL:-outputs/checkpoints/pretrain_pilot_300_e20_n4096_ep2}"
 PRETRAIN_STATIC="${PRETRAIN_STATIC:-outputs/checkpoints/pretrain_gate_static_tdf_only_ep2}"
 PRETRAIN_NO_BOUNDARY="${PRETRAIN_NO_BOUNDARY:-outputs/checkpoints/pretrain_gate_no_boundary_field_ep2}"
@@ -40,8 +42,8 @@ done
 split_path_for() {
   local split_seed="$1"
   local path="$GATE_SPLIT_PATTERN"
-  path="${path//"{split_seed}"/$split_seed}"
-  path="${path//"{split_seed.json}"/"${split_seed}.json"}"
+  path="${path//\{split_seed.json\}/${split_seed}.json}"
+  path="${path//\{split_seed\}/$split_seed}"
   if [[ "$path" == *"{split_seed"* ]]; then
     path="outputs/logs/r0_splits/d1_proxy_pilot_300_c5_n8192_label_scarcity_seed${split_seed}.json"
   fi
@@ -93,6 +95,7 @@ pretrain_dir_for() {
     full) echo "$PRETRAIN_FULL" ;;
     static_tdf_only) echo "$PRETRAIN_STATIC" ;;
     no_boundary_field) echo "$PRETRAIN_NO_BOUNDARY" ;;
+    dynamics_lifted) echo "$PRETRAIN_DYNAMICS" ;;
     dynamics_lifted_no_boundary) echo "$PRETRAIN_DYNAMICS" ;;
     scratch) echo "" ;;
     *)
