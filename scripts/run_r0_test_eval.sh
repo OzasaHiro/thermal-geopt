@@ -21,7 +21,7 @@ EPOCHS="${EPOCHS:-20}"
 POINT_BUDGET="${POINT_BUDGET:-4096}"
 DEVICE="${DEVICE:-cuda}"
 SKIP_EXISTING="${SKIP_EXISTING:-1}"
-RUN_PREFIX="${RUN_PREFIX:-d1_r0}"
+RUN_PREFIX="${RUN_PREFIX:-d1_r0_v2}"
 SUMMARY_JSON="${SUMMARY_JSON:-outputs/logs/r0_replication_summary.json}"
 SUMMARY_MD="${SUMMARY_MD:-docs/r0_replication_results.md}"
 
@@ -35,7 +35,12 @@ done
 split_path_for() {
   local split_seed="$1"
   local path="$GATE_SPLIT_PATTERN"
-  path="${path//\{split_seed\}/$split_seed}"
+  local needle="{split_seed}"
+  path="${path//$needle/$split_seed}"
+  if [[ "$path" == *"{"* || "$path" == *"}"* ]]; then
+    echo "Unresolved placeholder in GATE_SPLIT_PATTERN result: $path" >&2
+    return 1
+  fi
   echo "$path"
 }
 

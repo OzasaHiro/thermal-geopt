@@ -31,7 +31,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--eval-pattern",
         default=(
-            "outputs/logs/d1_r0_{group}_split{split_seed}_trainseed{train_seed}_"
+            "outputs/logs/d1_r0_v2_{group}_split{split_seed}_trainseed{train_seed}_"
             "train{train_size}_test_eval.json"
         ),
         help="Pattern with {group}, {split_seed}, {train_seed}, and {train_size} placeholders.",
@@ -39,7 +39,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--run-pattern",
         default=(
-            "outputs/checkpoints/d1_r0_{group}_split{split_seed}_trainseed{train_seed}_"
+            "outputs/checkpoints/d1_r0_v2_{group}_split{split_seed}_trainseed{train_seed}_"
             "train{train_size}_ep20"
         ),
         help="Run directory pattern with {group}, {split_seed}, {train_seed}, and {train_size} placeholders.",
@@ -151,11 +151,53 @@ def run_metadata(path: Path) -> dict[str, Any]:
         "path": str(path),
         "exists": True,
         "metrics": metrics,
+        "split_path": config.get("split_path") if isinstance(config, dict) else None,
         "train_split": config.get("train_split") if isinstance(config, dict) else None,
         "seed": config.get("seed") if isinstance(config, dict) else None,
         "pretrained_model_dir": config.get("pretrained_model_dir") if isinstance(config, dict) else None,
         "pretrained_load": config.get("pretrained_load") if isinstance(config, dict) else None,
     }
+
+
+def integrity_warnings(
+    args: argparse.Namespace,
+    per_run: dict[str, dict[str, dict[str, dict[str, Any]]]],
+    runs: dict[str, dict[str, dict[str, dict[str, Any]]]],
+) -> list[str]:
+    warnings: set[str] = set()
+    for train_size in args.train_sizes:
+        size_key = str(train_size)
+        for group in args.groups:
+            for train_seed in args.train_seeds:
+                split_paths = []
+                rel_l2_values = []
+                for split_seed in args.split_seeds:
+                    run_key = f"split{split_seed}_trainseed{train_seed}"
+                    metadata = runs.get(size_key, {}).get(group, {}).get(run_key, {})
+                    split_path = metadata.get("split_path")
+                    if isinstance(split_path, str) and split_path:
+                        split_paths.append(split_path)
+                        if "{" in split_path or "}" in split_path:
+                            warnings.add(
+                                f"Unresolved placeholder in split_path for {group} train_size={train_size}: {split_path}"
+                            )
+                    row = per_run.get(size_key, {}).get(group, {}).get(run_key, {})
+                    rel_l2 = row.get("relative_l2_mean")
+                    if isinstance(rel_l2, (int, float)):
+                        rel_l2_values.append(float(rel_l2))
+
+                if len(args.split_seeds) > 1 and split_paths and len(set(split_paths)) == 1:
+                    warnings.add(
+                        "All split seeds used the same split_path for "
+                        f"group={group}, train_size={train_size}, train_seed={train_seed}: {split_paths[0]}"
+                    )
+                if len(rel_l2_values) > 1 and len({f"{value:.12g}" for value in rel_l2_values}) == 1:
+                    warnings.add(
+                        "Relative L2 is identical across split seeds for "
+                        f"group={group}, train_size={train_size}, train_seed={train_seed}; "
+                        "treat run-level CI as non-informative until split independence is verified."
+                    )
+    return sorted(warnings)
 
 
 def build_summary(args: argparse.Namespace) -> dict[str, Any]:
@@ -259,6 +301,7 @@ def build_summary(args: argparse.Namespace) -> dict[str, Any]:
         "runs": runs,
         "aggregate": aggregate,
         "comparisons": comparisons,
+        "integrity_warnings": integrity_warnings(args, per_run, runs),
     }
 
 
@@ -288,11 +331,22 @@ def markdown_report(summary: dict[str, Any]) -> str:
         f"- train seeds: `{summary['train_seeds']}`",
         f"- groups: `{groups}`",
         "",
-        "## Test Relative L2 Across Runs",
-        "",
-        "| train_size | " + " | ".join(groups) + " |",
-        "|---:|" + "|".join(["---:"] * len(groups)) + "|",
     ]
+    warnings = summary.get("integrity_warnings") or []
+    if warnings:
+        lines.extend(["## Integrity Warnings", ""])
+        for warning in warnings:
+            lines.append(f"- {warning}")
+        lines.append("")
+
+    lines.extend(
+        [
+            "## Test Relative L2 Across Runs",
+            "",
+            "| train_size | " + " | ".join(groups) + " |",
+            "|---:|" + "|".join(["---:"] * len(groups)) + "|",
+        ]
+    )
     for train_size in summary["train_sizes"]:
         size_key = str(train_size)
         row = [str(train_size)]

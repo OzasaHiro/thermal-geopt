@@ -65,6 +65,19 @@ The summary is written to:
 - `outputs/logs/r0_replication_summary.json`
 - `docs/r0_replication_results.md`
 
+## If You Ran The First R0 Scripts
+
+The initial R0 runner used an incorrect split placeholder expansion, so all requested split seeds could point at the same split file. The fixed scripts now use `RUN_PREFIX=d1_r0_v2` by default, which avoids reusing those stale checkpoints.
+
+After pulling this fix, rerun the normal commands:
+
+```bash
+bash scripts/run_r0_replication_matrix.sh
+bash scripts/run_r0_test_eval.sh
+```
+
+The summary now emits integrity warnings when split paths still contain unresolved `{...}` placeholders or when multiple split seeds map to the same split path.
+
 ## Interpretation
 
 Treat the 100-label signal as reproduced only if `no_boundary_field` is consistently positive across split seeds and remains visible at 125 labels. If it appears only for seed 42 or collapses around 75/125 labels, keep the old gate negative and prioritize R1 dynamics-lifted pretraining.

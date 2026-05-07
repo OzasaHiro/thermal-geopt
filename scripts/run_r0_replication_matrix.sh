@@ -27,7 +27,7 @@ MAX_TRAIN_CASES="${MAX_TRAIN_CASES:-0}"
 MAX_VAL_CASES="${MAX_VAL_CASES:-0}"
 DEVICE="${DEVICE:-cuda}"
 SKIP_EXISTING="${SKIP_EXISTING:-1}"
-RUN_PREFIX="${RUN_PREFIX:-d1_r0}"
+RUN_PREFIX="${RUN_PREFIX:-d1_r0_v2}"
 
 for path in "$D1_MANIFEST" "$BASE_SPLIT"; do
   if [[ ! -e "$path" ]]; then
@@ -39,7 +39,12 @@ done
 split_path_for() {
   local split_seed="$1"
   local path="$GATE_SPLIT_PATTERN"
-  path="${path//\{split_seed\}/$split_seed}"
+  local needle="{split_seed}"
+  path="${path//$needle/$split_seed}"
+  if [[ "$path" == *"{"* || "$path" == *"}"* ]]; then
+    echo "Unresolved placeholder in GATE_SPLIT_PATTERN result: $path" >&2
+    return 1
+  fi
   echo "$path"
 }
 
