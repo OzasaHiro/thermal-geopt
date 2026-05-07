@@ -114,6 +114,20 @@ Run the four groups for each train size:
 
 Use this shell loop. It is intentionally explicit and writes outputs in the convention expected by `scripts/summarize_label_scarcity_results.py`.
 
+Recommended logged command:
+
+```bash
+bash scripts/run_gate_downstream_matrix.sh
+```
+
+For a short dry run:
+
+```bash
+TRAIN_SIZES="10" EPOCHS=1 POINT_BUDGET=128 EVAL_POINT_BUDGET=128 MAX_VAL_CASES=2 bash scripts/run_gate_downstream_matrix.sh
+```
+
+The manual loop equivalent is:
+
 ```bash
 set -euo pipefail
 
@@ -199,6 +213,22 @@ done
 ```
 
 ## 4. Test Evaluation
+
+Recommended logged command:
+
+```bash
+bash scripts/run_gate_test_eval.sh
+```
+
+For a short dry run matching the dry-run matrix:
+
+```bash
+TRAIN_SIZES="10" GATE_GROUPS="scratch" EPOCHS=1 POINT_BUDGET=128 bash scripts/run_gate_test_eval.sh
+```
+
+The script fails before evaluation if any expected `config.json` or `best_model.pt` is missing.
+
+Manual loop equivalent:
 
 ```bash
 set -euo pipefail
