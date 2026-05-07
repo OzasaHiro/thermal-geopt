@@ -216,6 +216,22 @@ EVAL_JSON=outputs/logs/d1_openfoam_block_scratch_pilot_ep20_test.json \
 bash scripts/run_m1_openfoam_downstream_smoke.sh
 ```
 
+solver-backed D1 initialization comparison:
+
+```bash
+bash scripts/run_m1_openfoam_init_compare.sh
+```
+
+この比較runnerのデフォルトは、既存pretraining checkpointとarchitectureを揃えるため
+`N_HIDDEN=256 N_LAYERS=8 N_HEADS=8 SLICE_NUM=32` にしている。
+
+If the R1 dynamics-lifted pretraining checkpoint exists, include it with:
+
+```bash
+INIT_GROUPS="scratch full static_tdf_only no_boundary_field dynamics_lifted" \
+bash scripts/run_m1_openfoam_init_compare.sh
+```
+
 ## 8. Git管理
 
 生成データは `.gitignore` 対象なのでGitに入れない。コード・設定・軽量Markdownだけをコミットする。

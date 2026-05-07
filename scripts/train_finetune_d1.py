@@ -58,14 +58,20 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def target_stats(dataset: D1ProxyDataset) -> tuple[float, float]:
-    values = []
+def train_stats(dataset: D1ProxyDataset) -> tuple[float, float, torch.Tensor, torch.Tensor]:
+    target_values = []
+    feature_values = []
     for index in range(len(dataset)):
-        values.append(dataset[index]["y"].reshape(-1))  # type: ignore[index,union-attr]
-    y = torch.cat(values).float()
+        sample = dataset[index]
+        target_values.append(sample["y"].reshape(-1))  # type: ignore[index,union-attr]
+        feature_values.append(sample["fx"].reshape(-1, sample["fx"].shape[-1]))  # type: ignore[index,union-attr]
+    y = torch.cat(target_values).float()
+    fx = torch.cat(feature_values).float()
     mean = float(y.mean())
     std = float(torch.clamp(y.std(unbiased=False), min=1e-6))
-    return mean, std
+    feature_mean = fx.mean(dim=0)
+    feature_std = torch.clamp(fx.std(dim=0, unbiased=False), min=1e-6)
+    return mean, std, feature_mean, feature_std
 
 
 @torch.no_grad()
@@ -78,6 +84,8 @@ def evaluate(
     amp_dtype: torch.dtype,
     target_mean: float,
     target_std: float,
+    feature_mean: torch.Tensor,
+    feature_std: torch.Tensor,
 ) -> dict[str, float]:
     model.eval()
     rel_l2_values = []
@@ -87,8 +95,9 @@ def evaluate(
         x = batch["x"].to(device=device, dtype=torch.float32)
         fx = batch["fx"].to(device=device, dtype=torch.float32)
         y = batch["y"].to(device=device, dtype=torch.float32)
+        fx_norm = (fx - feature_mean.view(1, 1, -1)) / feature_std.view(1, 1, -1)
         with torch.amp.autocast(device_type=device.type, dtype=amp_dtype, enabled=amp_enabled):
-            pred_norm = model(x, fx)
+            pred_norm = model(x, fx_norm)
         pred = pred_norm.float() * target_std + target_mean
         rel_l2_values.append(float(relative_l2_torch(pred, y).cpu()))
         rmse_values.append(float(rmse_torch(pred, y).cpu()))
@@ -122,7 +131,9 @@ def main() -> int:
     )
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=0)
     val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=0)
-    target_mean, target_std = target_stats(train_dataset)
+    target_mean, target_std, feature_mean_cpu, feature_std_cpu = train_stats(train_dataset)
+    feature_mean = feature_mean_cpu.to(device=device, dtype=torch.float32)
+    feature_std = feature_std_cpu.to(device=device, dtype=torch.float32)
     model_config = {
         "fun_dim": train_dataset.fun_dim,
         "out_dim": train_dataset.out_dim,
@@ -165,6 +176,12 @@ def main() -> int:
         "seed": args.seed,
         "target_mean": target_mean,
         "target_std": target_std,
+        "normalization": {
+            "target_mean": target_mean,
+            "target_std": target_std,
+            "feature_mean": [float(value) for value in feature_mean_cpu.tolist()],
+            "feature_std": [float(value) for value in feature_std_cpu.tolist()],
+        },
         "amp": amp_enabled,
         "amp_dtype": args.amp_dtype if amp_enabled else None,
         "model": model_config,
@@ -175,6 +192,7 @@ def main() -> int:
 
     history = []
     best_score = float("inf")
+    best_metrics = None
     start_time = time.time()
     for epoch in range(1, args.epochs + 1):
         model.train()
@@ -183,10 +201,11 @@ def main() -> int:
             x = batch["x"].to(device=device, dtype=torch.float32)
             fx = batch["fx"].to(device=device, dtype=torch.float32)
             y = batch["y"].to(device=device, dtype=torch.float32)
+            fx_norm = (fx - feature_mean.view(1, 1, -1)) / feature_std.view(1, 1, -1)
             y_norm = (y - target_mean) / target_std
             optimizer.zero_grad(set_to_none=True)
             with torch.amp.autocast(device_type=device.type, dtype=amp_dtype, enabled=amp_enabled):
-                pred_norm = model(x, fx)
+                pred_norm = model(x, fx_norm)
                 loss = F.mse_loss(pred_norm, y_norm)
             if not torch.isfinite(loss):
                 raise RuntimeError(f"Non-finite D1 loss at epoch {epoch}: {float(loss.detach().cpu())}")
@@ -203,6 +222,8 @@ def main() -> int:
             amp_dtype=amp_dtype,
             target_mean=target_mean,
             target_std=target_std,
+            feature_mean=feature_mean,
+            feature_std=feature_std,
         )
         metrics = {"epoch": epoch, "train_mse": train_mse, "elapsed_sec": time.time() - start_time, **val_metrics}
         history.append(metrics)
@@ -211,6 +232,7 @@ def main() -> int:
         score = val_metrics["relative_l2_mean"]
         if score < best_score:
             best_score = score
+            best_metrics = metrics
             save_checkpoint(
                 args.output_dir / "best_model.pt",
                 model=model,
@@ -221,7 +243,7 @@ def main() -> int:
             )
 
     write_json(args.output_dir / "history.json", {"history": history})
-    write_json(args.output_dir / "metrics.json", history[-1])
+    write_json(args.output_dir / "metrics.json", {"final": history[-1], "best": best_metrics or history[-1]})
     return 0
 
 

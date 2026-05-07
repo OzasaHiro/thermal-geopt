@@ -76,3 +76,35 @@ MAX_TRAIN_CASES=0 MAX_VAL_CASES=0 EPOCHS=20 DEVICE=cuda \
   EVAL_JSON=outputs/logs/d1_openfoam_block_scratch_pilot_ep20_test.json \
   bash scripts/run_m1_openfoam_downstream_smoke.sh
 ```
+
+The first scratch pilot without feature normalization did not beat the baseline
+on test. Input feature normalization was then added to `train_finetune_d1.py`.
+With the same 35/7/8 split, 20 epochs, and 1024 sampled points, normalized
+scratch reached:
+
+| Metric | Value |
+|---|---:|
+| Relative L2 | 0.0044542507 |
+| RMSE | 1.55217925 |
+| Max temperature absolute error | 2.13405228 |
+| Hotspot distance | 0.0 |
+
+This confirms the solver-backed D1 block pilot is learnable and that downstream
+comparisons must use the normalized-feature training path.
+
+Next initialization comparison:
+
+```bash
+bash scripts/run_m1_openfoam_init_compare.sh
+```
+
+The initialization comparison runner uses the same architecture as the existing
+pretraining checkpoints by default: `N_HIDDEN=256`, `N_LAYERS=8`, `N_HEADS=8`,
+and `SLICE_NUM=32`.
+
+A short architecture-aligned path check was completed with 4 train cases,
+2 validation cases, 2 epochs, and 256 sampled points. Scratch and all existing
+pilot-pretrained initialization paths completed training and test evaluation.
+For the preloaded groups, 166 tensors loaded and 3 tensors were skipped/missing.
+
+This is only a path check. It is not a pretraining efficacy result.
