@@ -16,6 +16,7 @@ GATE_SPLIT_PATTERN="${GATE_SPLIT_PATTERN:-outputs/logs/r0_splits/d1_proxy_pilot_
 PRETRAIN_FULL="${PRETRAIN_FULL:-outputs/checkpoints/pretrain_pilot_300_e20_n4096_ep2}"
 PRETRAIN_STATIC="${PRETRAIN_STATIC:-outputs/checkpoints/pretrain_gate_static_tdf_only_ep2}"
 PRETRAIN_NO_BOUNDARY="${PRETRAIN_NO_BOUNDARY:-outputs/checkpoints/pretrain_gate_no_boundary_field_ep2}"
+PRETRAIN_DYNAMICS="${PRETRAIN_DYNAMICS:-outputs/checkpoints/pretrain_r1_dynamics_lifted_no_boundary_ep2}"
 GATE_GROUPS="${GATE_GROUPS:-scratch no_boundary_field}"
 TRAIN_SIZES="${TRAIN_SIZES:-50 75 100 125}"
 SPLIT_SEEDS="${SPLIT_SEEDS:-42 43 44 45 46}"
@@ -92,6 +93,7 @@ pretrain_dir_for() {
     full) echo "$PRETRAIN_FULL" ;;
     static_tdf_only) echo "$PRETRAIN_STATIC" ;;
     no_boundary_field) echo "$PRETRAIN_NO_BOUNDARY" ;;
+    dynamics_lifted_no_boundary) echo "$PRETRAIN_DYNAMICS" ;;
     scratch) echo "" ;;
     *)
       echo "Unknown group: $group" >&2

@@ -72,6 +72,31 @@ $PY scripts/train_pretrain.py \
 
 Then use it in downstream fine-tuning as a new R1 group, not inside the R0 replication summary.
 
+## Downstream Matrix
+
+After the R1 checkpoint exists, compare it under the same label-scarcity protocol. This should be treated as an R1 gate, not as a replacement for the corrected R0 result.
+
+Run only the new R1 group:
+
+```bash
+GATE_GROUPS="dynamics_lifted_no_boundary" \
+RUN_PREFIX=d1_r1 \
+PRETRAIN_DYNAMICS=outputs/checkpoints/pretrain_r1_dynamics_lifted_no_boundary_ep2 \
+bash scripts/run_r0_replication_matrix.sh
+```
+
+Evaluate the new R1 group:
+
+```bash
+GATE_GROUPS="dynamics_lifted_no_boundary" \
+RUN_PREFIX=d1_r1 \
+SUMMARY_JSON=outputs/logs/r1_dynamics_lifted_summary.json \
+SUMMARY_MD=docs/r1_dynamics_lifted_results.md \
+bash scripts/run_r0_test_eval.sh
+```
+
+For final comparison against corrected R0, compare `docs/r0_replication_results.md` with `docs/r1_dynamics_lifted_results.md`. The key question is whether R1 beats both scratch and old `no_boundary_field`, especially at 50/75 labels.
+
 ## Interpretation
 
 R1 should be judged against scratch and the old `no_boundary_field` checkpoint under the same label-scarcity protocol. It is meaningful only if it improves label efficiency or convergence speed under scarce downstream labels. A larger dynamics-lifted pretraining run is justified only after this small R1 checkpoint shows a reproducible transfer signal.
