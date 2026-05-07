@@ -62,7 +62,17 @@ STATIC_TDF_FEATURE_NAMES = [
     "normal_y",
     "normal_z",
 ]
-PRETRAIN_ABLATIONS = ("full", "no_boundary_field", "static_tdf_only")
+PRETRAIN_DYNAMICS_FEATURE_NAMES = [
+    "brownian_delta_1_x",
+    "brownian_delta_1_y",
+    "brownian_delta_1_z",
+    "brownian_delta_final_x",
+    "brownian_delta_final_y",
+    "brownian_delta_final_z",
+    "boundary_hit",
+    "hit_step_norm",
+]
+PRETRAIN_ABLATIONS = ("full", "no_boundary_field", "static_tdf_only", "dynamics_lifted")
 PRETRAIN_CONDITION_MODES = ("full", "zero_boundary_field", "zero_all")
 
 
@@ -149,6 +159,41 @@ class PretrainZarrDataset(Dataset):
         target_names = self.feature_names if ablation != "static_tdf_only" else STATIC_TDF_FEATURE_NAMES
         self.target_indices = _indices_for_names(self.feature_names, target_names)
         self.target_names = [self.feature_names[index] for index in self.target_indices]
+        self.target_slices: dict[str, tuple[int, int]] = {"tdf": (0, len(self.target_names))}
+        if ablation == "dynamics_lifted":
+            start = len(self.target_names)
+            self.target_names = [*self.target_names, *PRETRAIN_DYNAMICS_FEATURE_NAMES]
+            self.target_slices.update(
+                {
+                    "brownian_delta_1": (start, start + 3),
+                    "brownian_delta_final": (start + 3, start + 6),
+                    "boundary_hit": (start + 6, start + 7),
+                    "hit_step_norm": (start + 7, start + 8),
+                }
+            )
+
+    @staticmethod
+    def _dynamics_targets(group: Any, episode: int, ids: np.ndarray) -> np.ndarray:
+        if "trajectory" not in group or "hit_mask" not in group or "hit_step" not in group:
+            raise KeyError(
+                "dynamics_lifted pretraining requires trajectory, hit_mask, and hit_step arrays in each shard."
+            )
+        trajectory = np.asarray(group["trajectory"][episode], dtype=np.float32)
+        if trajectory.ndim != 3 or trajectory.shape[-1] != 3:
+            raise ValueError(f"Expected trajectory shape (points, steps+1, 3), got {trajectory.shape}")
+        if trajectory.shape[1] < 2:
+            raise ValueError("dynamics_lifted pretraining requires at least one Brownian step.")
+
+        start = trajectory[:, 0, :]
+        delta_1 = trajectory[:, 1, :] - start
+        delta_final = trajectory[:, -1, :] - start
+        hit_mask = np.asarray(group["hit_mask"][episode], dtype=np.float32).reshape(-1, 1)
+        hit_step = np.asarray(group["hit_step"][episode], dtype=np.float32).reshape(-1, 1)
+        max_step = float(max(trajectory.shape[1] - 1, 1))
+        miss_step = max_step + 1.0
+        hit_step_norm = np.where(hit_step >= 0.0, hit_step, miss_step) / miss_step
+        target = np.concatenate([delta_1, delta_final, hit_mask, hit_step_norm.astype(np.float32)], axis=1)
+        return target[ids].astype(np.float32)
 
     def __len__(self) -> int:
         return len(self.refs)
@@ -161,7 +206,6 @@ class PretrainZarrDataset(Dataset):
         episode = ref.episode_index
         x = np.asarray(group["x"][episode], dtype=np.float32)
         cond = np.asarray(group["cond"][episode], dtype=np.float32)
-        y = np.asarray(group["y_tdf"][episode], dtype=np.float32)[:, self.target_indices]
         if self.condition_mode == "zero_boundary_field":
             for field_name in ("q_near", "boundary_field", "heat_flux_near"):
                 if field_name in self.condition_names:
@@ -169,10 +213,14 @@ class PretrainZarrDataset(Dataset):
         elif self.condition_mode == "zero_all":
             cond = np.zeros_like(cond)
         ids = sample_indices(x.shape[0], self.point_budget, seed=self.seed + index)
+        y = np.asarray(group["y_tdf"][episode], dtype=np.float32)[:, self.target_indices][ids]
+        if self.ablation == "dynamics_lifted":
+            dynamics = self._dynamics_targets(group, episode, ids)
+            y = np.concatenate([y, dynamics], axis=1)
         return {
             "x": torch.from_numpy(x[ids]),
             "fx": torch.from_numpy(cond[ids]),
-            "y": torch.from_numpy(y[ids]),
+            "y": torch.from_numpy(y),
         }
 
     @property

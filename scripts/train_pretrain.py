@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pilot pretraining for Thermal GeoPT TDF targets."""
+"""Pilot pretraining for Thermal GeoPT self-supervised targets."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-episodes", type=int, default=64)
     parser.add_argument(
         "--pretext-ablation",
-        choices=["full", "no_boundary_field", "static_tdf_only"],
+        choices=["full", "no_boundary_field", "static_tdf_only", "dynamics_lifted"],
         default="full",
         help="Select the pretraining target/prompt ablation without regenerating Zarr shards.",
     )
@@ -43,6 +43,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--weight-decay", type=float, default=1e-5)
+    parser.add_argument("--tdf-loss-weight", type=float, default=1.0)
+    parser.add_argument("--trajectory-loss-weight", type=float, default=1.0)
+    parser.add_argument("--hit-mask-loss-weight", type=float, default=1.0)
+    parser.add_argument("--hit-step-loss-weight", type=float, default=1.0)
     parser.add_argument("--n-hidden", type=int, default=256)
     parser.add_argument("--n-layers", type=int, default=8)
     parser.add_argument("--n-heads", type=int, default=8)
@@ -53,6 +57,48 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--geopt-vendor", type=Path, default=Path("../GeoPT/vendor/GeoPT"))
     return parser.parse_args()
+
+
+def _slice_loss(pred: torch.Tensor, target: torch.Tensor, start: int, end: int) -> torch.Tensor:
+    return F.mse_loss(pred[..., start:end], target[..., start:end])
+
+
+def pretrain_loss(
+    pred: torch.Tensor,
+    target: torch.Tensor,
+    *,
+    target_slices: dict[str, tuple[int, int]],
+    args: argparse.Namespace,
+) -> tuple[torch.Tensor, dict[str, float]]:
+    if "brownian_delta_1" not in target_slices:
+        loss = F.mse_loss(pred, target)
+        return loss, {"mse": float(loss.detach().cpu())}
+
+    tdf_start, tdf_end = target_slices["tdf"]
+    delta_1_start, delta_1_end = target_slices["brownian_delta_1"]
+    delta_final_start, delta_final_end = target_slices["brownian_delta_final"]
+    hit_start, hit_end = target_slices["boundary_hit"]
+    hit_step_start, hit_step_end = target_slices["hit_step_norm"]
+
+    tdf = _slice_loss(pred, target, tdf_start, tdf_end)
+    delta_1 = _slice_loss(pred, target, delta_1_start, delta_1_end)
+    delta_final = _slice_loss(pred, target, delta_final_start, delta_final_end)
+    hit = _slice_loss(pred, target, hit_start, hit_end)
+    hit_step = _slice_loss(pred, target, hit_step_start, hit_step_end)
+    trajectory = 0.5 * (delta_1 + delta_final)
+    loss = (
+        args.tdf_loss_weight * tdf
+        + args.trajectory_loss_weight * trajectory
+        + args.hit_mask_loss_weight * hit
+        + args.hit_step_loss_weight * hit_step
+    )
+    return loss, {
+        "loss_total": float(loss.detach().cpu()),
+        "loss_tdf": float(tdf.detach().cpu()),
+        "loss_trajectory": float(trajectory.detach().cpu()),
+        "loss_boundary_hit": float(hit.detach().cpu()),
+        "loss_hit_step_norm": float(hit_step.detach().cpu()),
+    }
 
 
 def main() -> int:
@@ -95,8 +141,16 @@ def main() -> int:
         "condition_mode": dataset.condition_mode,
         "condition_names": dataset.condition_names,
         "target_names": dataset.target_names,
+        "target_slices": {key: list(value) for key, value in dataset.target_slices.items()},
+        "loss_weights": {
+            "tdf": args.tdf_loss_weight,
+            "trajectory": args.trajectory_loss_weight,
+            "hit_mask": args.hit_mask_loss_weight,
+            "hit_step": args.hit_step_loss_weight,
+        },
         "lr": args.lr,
         "weight_decay": args.weight_decay,
+        "seed": args.seed,
         "amp": amp_enabled,
         "amp_dtype": args.amp_dtype if amp_enabled else None,
         "model": model_config,
@@ -110,6 +164,7 @@ def main() -> int:
     for epoch in range(1, args.epochs + 1):
         model.train()
         losses = []
+        component_sums: dict[str, float] = {}
         for batch in loader:
             x = batch["x"].to(device=device, dtype=torch.float32)
             fx = batch["fx"].to(device=device, dtype=torch.float32)
@@ -117,14 +172,18 @@ def main() -> int:
             optimizer.zero_grad(set_to_none=True)
             with torch.amp.autocast(device_type=device.type, dtype=amp_dtype, enabled=amp_enabled):
                 pred = model(x, fx)
-                loss = F.mse_loss(pred, y)
+                loss, components = pretrain_loss(pred, y, target_slices=dataset.target_slices, args=args)
             if not torch.isfinite(loss):
                 raise RuntimeError(f"Non-finite pretrain loss at epoch {epoch}: {float(loss.detach().cpu())}")
             loss.backward()
             optimizer.step()
             losses.append(float(loss.detach().cpu()))
+            for key, value in components.items():
+                component_sums[key] = component_sums.get(key, 0.0) + value
         epoch_loss = float(sum(losses) / max(len(losses), 1))
         metrics = {"epoch": epoch, "train_mse": epoch_loss, "elapsed_sec": time.time() - start_time}
+        for key, value in sorted(component_sums.items()):
+            metrics[key] = float(value / max(len(losses), 1))
         history.append(metrics)
         print(metrics)
         save_checkpoint(args.output_dir / "model.pt", model=model, optimizer=optimizer, epoch=epoch, config=config, metrics=metrics)

@@ -162,6 +162,7 @@ def main() -> int:
         "max_val_cases": args.max_val_cases,
         "lr": args.lr,
         "weight_decay": args.weight_decay,
+        "seed": args.seed,
         "target_mean": target_mean,
         "target_std": target_std,
         "amp": amp_enabled,
