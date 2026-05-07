@@ -17,7 +17,14 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from thermal_geopt.metrics import max_value_error, relative_l2
+from thermal_geopt.metrics import (
+    centered_relative_l2,
+    hotspot_abs_error,
+    max_temperature_abs_error,
+    max_value_error,
+    normalized_rmse_range,
+    relative_l2,
+)
 
 ITEM_LIST_KEYS = ("records", "cases", "samples", "items", "shards")
 ID_KEYS = ("sample", "case", "case_id", "id", "name")
@@ -259,6 +266,17 @@ def normalize_features(features: np.ndarray, config: dict[str, Any]) -> np.ndarr
     return (features - mean.reshape(1, -1)) / np.maximum(std.reshape(1, -1), 1e-8)
 
 
+def normalize_points(points: np.ndarray, config: dict[str, Any]) -> np.ndarray:
+    stats = config.get("normalization") or config.get("normalizers") or config
+    if not isinstance(stats, dict):
+        return points
+    mean = array_from_config(stats, ("coordinate_mean", "x_mean"), points.shape[1])
+    std = array_from_config(stats, ("coordinate_std", "x_std"), points.shape[1])
+    if mean is None or std is None:
+        return points
+    return (points - mean.reshape(1, -1)) / np.maximum(std.reshape(1, -1), 1e-8)
+
+
 def denormalize_temperature(pred: np.ndarray, config: dict[str, Any]) -> np.ndarray:
     stats = config.get("normalization") or config.get("normalizers") or config
     if not isinstance(stats, dict):
@@ -325,8 +343,9 @@ def predict_model(
             f"Case conditions have fun_dim={conditions.shape[1]}, but model config expects fun_dim={fun_dim}."
         )
     features = normalize_features(conditions, config)
+    model_points = normalize_points(points, config)
     with torch.no_grad():
-        x = torch.from_numpy(points).unsqueeze(0).to(device=device, dtype=torch.float32)
+        x = torch.from_numpy(model_points).unsqueeze(0).to(device=device, dtype=torch.float32)
         fx = torch.from_numpy(features).unsqueeze(0).to(device=device, dtype=torch.float32)
         pred = model(x, fx)
     pred_np = pred.detach().cpu().numpy()
@@ -349,10 +368,13 @@ def case_metrics(pred: np.ndarray, target: np.ndarray, points: np.ndarray) -> di
     max_temperature_error = max_value_error(pred, target)
     return {
         "relative_l2": relative_l2(pred, target),
+        "centered_relative_l2": centered_relative_l2(pred, target),
         "rmse": float(math.sqrt(np.mean(error * error))),
+        "normalized_rmse_range": normalized_rmse_range(pred, target),
         "max_value_error": max_temperature_error,
         "max_temperature_error": max_temperature_error,
-        "max_temperature_abs_error": abs(max_temperature_error),
+        "max_temperature_abs_error": max_temperature_abs_error(pred, target),
+        "hotspot_abs_error": hotspot_abs_error(pred, target),
         "hotspot_distance": hotspot_distance,
         "points": int(target.shape[0]),
     }
@@ -364,9 +386,12 @@ def summarize(metrics: list[dict[str, float]]) -> dict[str, float]:
         raise SystemExit("No points evaluated.")
     return {
         "relative_l2_mean": float(np.mean([item["relative_l2"] for item in metrics])),
+        "centered_relative_l2_mean": float(np.mean([item["centered_relative_l2"] for item in metrics])),
         "rmse_mean": float(np.mean([item["rmse"] for item in metrics])),
+        "normalized_rmse_range_mean": float(np.mean([item["normalized_rmse_range"] for item in metrics])),
         "max_value_error_mean": float(np.mean([item["max_value_error"] for item in metrics])),
         "max_temperature_abs_error_mean": float(np.mean([item["max_temperature_abs_error"] for item in metrics])),
+        "hotspot_abs_error_mean": float(np.mean([item["hotspot_abs_error"] for item in metrics])),
         "hotspot_distance_mean": float(np.mean([item["hotspot_distance"] for item in metrics])),
     }
 

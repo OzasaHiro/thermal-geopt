@@ -38,6 +38,8 @@ FINETUNE_WARMUP_RATIO="${FINETUNE_WARMUP_RATIO:-0.05}"
 FINETUNE_MIN_LR_SCALE="${FINETUNE_MIN_LR_SCALE:-0.01}"
 FINETUNE_PCT_START="${FINETUNE_PCT_START:-0.3}"
 MAX_GRAD_NORM="${MAX_GRAD_NORM:-}"
+NORMALIZATION_PROTOCOL="${NORMALIZATION_PROTOCOL:-legacy_downstream}"
+NORMALIZATION_CONFIG="${NORMALIZATION_CONFIG:-}"
 SKIP_EXISTING="${SKIP_EXISTING:-1}"
 RUN_PREFIX="${RUN_PREFIX:-d1_r0_v2}"
 
@@ -147,6 +149,10 @@ for SPLIT_SEED in $SPLIT_SEEDS; do
         if [[ -n "$MAX_GRAD_NORM" ]]; then
           lr_args+=(--max-grad-norm "$MAX_GRAD_NORM")
         fi
+        lr_args+=(--normalization-protocol "$NORMALIZATION_PROTOCOL")
+        if [[ -n "$NORMALIZATION_CONFIG" ]]; then
+          lr_args+=(--normalization-config "$NORMALIZATION_CONFIG")
+        fi
         if [[ -n "$pretrain_dir" ]]; then
           if [[ ! -e "$pretrain_dir/best_model.pt" ]]; then
             echo "Missing pretrained checkpoint for group ${GROUP}: ${pretrain_dir}/best_model.pt"
@@ -161,6 +167,9 @@ for SPLIT_SEED in $SPLIT_SEEDS; do
           fi
           if [[ "$FREEZE_PRETRAINED_BACKBONE_EPOCHS" != "0" ]]; then
             lr_args+=(--freeze-pretrained-backbone-epochs "$FREEZE_PRETRAINED_BACKBONE_EPOCHS")
+          fi
+          if [[ "$NORMALIZATION_PROTOCOL" == "pretrained" && -z "$NORMALIZATION_CONFIG" ]]; then
+            lr_args+=(--normalization-config "$pretrain_dir/config.json")
           fi
         fi
 

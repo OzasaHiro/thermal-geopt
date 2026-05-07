@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import sys
 import time
@@ -19,6 +20,12 @@ if str(REPO_ROOT) not in sys.path:
 
 from thermal_geopt.datasets import D1ProxyDataset
 from thermal_geopt.models.transolver import create_transolver_model, load_matching_state
+from thermal_geopt.normalization import (
+    estimate_dataset_normalization,
+    legacy_finetune_normalization,
+    normalize_tensor,
+    vector_from_stats,
+)
 from thermal_geopt.training import (
     max_value_error_torch,
     relative_l2_torch,
@@ -39,6 +46,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--pretrained-model-dir", type=Path)
     parser.add_argument("--pretrained-checkpoint-file", default="best_model.pt")
+    parser.add_argument(
+        "--normalization-protocol",
+        choices=["legacy_downstream", "downstream", "pretrained", "none"],
+        default="legacy_downstream",
+        help=(
+            "legacy_downstream preserves old behavior: raw coordinates, downstream feature stats, downstream target stats. "
+            "downstream standardizes coordinates/features/target from the downstream train split. "
+            "pretrained reuses coordinate/feature stats from a pretraining config and target stats from downstream train."
+        ),
+    )
+    parser.add_argument(
+        "--normalization-config",
+        type=Path,
+        help="Config JSON containing pretraining normalization stats. Defaults to pretrained-model-dir/config.json for protocol=pretrained.",
+    )
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--point-budget", type=int, default=2048)
@@ -98,6 +120,121 @@ def train_stats(dataset: D1ProxyDataset) -> tuple[float, float, torch.Tensor, to
     return mean, std, feature_mean, feature_std
 
 
+def read_json(path: Path) -> dict[str, object]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"Expected JSON object in {path}")
+    return payload
+
+
+def extract_normalization(config: dict[str, object], *, source_path: Path) -> dict[str, object]:
+    payload = config.get("normalization")
+    if not isinstance(payload, dict):
+        raise ValueError(f"{source_path} does not contain a normalization object.")
+    return dict(payload)
+
+
+def downstream_target_stats(dataset: D1ProxyDataset) -> tuple[list[float], list[float]]:
+    target_values = []
+    for index in range(len(dataset)):
+        sample = dataset[index]
+        target_values.append(sample["y"].reshape(-1, sample["y"].shape[-1]))  # type: ignore[index,union-attr]
+    y = torch.cat(target_values).float()
+    mean = y.mean(dim=0)
+    std = torch.clamp(y.std(dim=0, unbiased=False), min=1e-6)
+    return [float(value) for value in mean.tolist()], [float(value) for value in std.tolist()]
+
+
+def _stats_width(stats: dict[str, object], key: str) -> int:
+    group = stats.get(key)
+    if not isinstance(group, dict) or not isinstance(group.get("mean"), list):
+        raise ValueError(f"Normalization stats missing {key}.mean")
+    return len(group["mean"])  # type: ignore[arg-type]
+
+
+def prepare_finetune_normalization(
+    train_dataset: D1ProxyDataset,
+    *,
+    args: argparse.Namespace,
+) -> dict[str, object]:
+    if args.normalization_protocol == "legacy_downstream":
+        target_mean, target_std, feature_mean, feature_std = train_stats(train_dataset)
+        normalization = legacy_finetune_normalization(
+            target_mean=target_mean,
+            target_std=target_std,
+            feature_mean=feature_mean,
+            feature_std=feature_std,
+        )
+    elif args.normalization_protocol == "downstream":
+        normalization = estimate_dataset_normalization(train_dataset, include_target=True)
+        normalization["mode"] = "downstream"
+    elif args.normalization_protocol == "none":
+        sample = train_dataset[0]
+        x_width = int(sample["x"].shape[-1])  # type: ignore[index]
+        fx_width = int(sample["fx"].shape[-1])  # type: ignore[index]
+        y_width = int(sample["y"].shape[-1])  # type: ignore[index]
+        normalization = {
+            "mode": "none",
+            "coordinate": {"count": 0, "mean": [0.0] * x_width, "std": [1.0] * x_width},
+            "feature": {"count": 0, "mean": [0.0] * fx_width, "std": [1.0] * fx_width},
+            "target": {"count": 0, "mean": [0.0] * y_width, "std": [1.0] * y_width},
+        }
+    else:
+        config_path = args.normalization_config
+        if config_path is None:
+            if args.pretrained_model_dir is None:
+                raise ValueError("--normalization-protocol pretrained requires --normalization-config or --pretrained-model-dir")
+            config_path = args.pretrained_model_dir / "config.json"
+        pretrain_config = read_json(config_path)
+        normalization = extract_normalization(pretrain_config, source_path=config_path)
+        if "coordinate" not in normalization or "feature" not in normalization:
+            raise ValueError(f"{config_path} normalization must contain coordinate and feature stats.")
+        target_mean, target_std = downstream_target_stats(train_dataset)
+        normalization = dict(normalization)
+        normalization["mode"] = "pretrained_input_downstream_target"
+        normalization["source_config"] = str(config_path)
+        normalization["target"] = {
+            "count": len(train_dataset),
+            "mean": target_mean,
+            "std": target_std,
+        }
+
+    coordinate = normalization["coordinate"]  # type: ignore[index]
+    feature = normalization["feature"]  # type: ignore[index]
+    target = normalization["target"]  # type: ignore[index]
+    normalization.update(
+        {
+            "coordinate_mean": coordinate["mean"],  # type: ignore[index]
+            "coordinate_std": coordinate["std"],  # type: ignore[index]
+            "x_mean": coordinate["mean"],  # type: ignore[index]
+            "x_std": coordinate["std"],  # type: ignore[index]
+            "feature_mean": feature["mean"],  # type: ignore[index]
+            "feature_std": feature["std"],  # type: ignore[index]
+            "target_mean": target["mean"],  # type: ignore[index]
+            "target_std": target["std"],  # type: ignore[index]
+        }
+    )
+
+    if _stats_width(normalization, "coordinate") != train_dataset[0]["x"].shape[-1]:  # type: ignore[index,union-attr]
+        raise ValueError("Coordinate normalization width does not match dataset points.")
+    if _stats_width(normalization, "feature") != train_dataset.fun_dim:
+        raise ValueError("Feature normalization width does not match dataset conditions.")
+    if _stats_width(normalization, "target") != train_dataset.out_dim:
+        raise ValueError("Target normalization width does not match dataset target.")
+    return normalization
+
+
+def normalization_vectors(normalization: dict[str, object], *, device: torch.device) -> dict[str, torch.Tensor]:
+    return {
+        "x_mean": vector_from_stats(normalization, "coordinate", "mean", width=3, device=device),
+        "x_std": vector_from_stats(normalization, "coordinate", "std", width=3, device=device),
+        "fx_mean": vector_from_stats(normalization, "feature", "mean", width=len(normalization["feature"]["mean"]), device=device),  # type: ignore[index,arg-type]
+        "fx_std": vector_from_stats(normalization, "feature", "std", width=len(normalization["feature"]["std"]), device=device),  # type: ignore[index,arg-type]
+        "y_mean": vector_from_stats(normalization, "target", "mean", width=len(normalization["target"]["mean"]), device=device),  # type: ignore[index,arg-type]
+        "y_std": vector_from_stats(normalization, "target", "std", width=len(normalization["target"]["std"]), device=device),  # type: ignore[index,arg-type]
+    }
+
+
 @torch.no_grad()
 def evaluate(
     model: torch.nn.Module,
@@ -106,10 +243,7 @@ def evaluate(
     device: torch.device,
     amp_enabled: bool,
     amp_dtype: torch.dtype,
-    target_mean: float,
-    target_std: float,
-    feature_mean: torch.Tensor,
-    feature_std: torch.Tensor,
+    vectors: dict[str, torch.Tensor],
 ) -> dict[str, float]:
     model.eval()
     rel_l2_values = []
@@ -119,10 +253,11 @@ def evaluate(
         x = batch["x"].to(device=device, dtype=torch.float32)
         fx = batch["fx"].to(device=device, dtype=torch.float32)
         y = batch["y"].to(device=device, dtype=torch.float32)
-        fx_norm = (fx - feature_mean.view(1, 1, -1)) / feature_std.view(1, 1, -1)
+        x_norm = normalize_tensor(x, vectors["x_mean"], vectors["x_std"])
+        fx_norm = normalize_tensor(fx, vectors["fx_mean"], vectors["fx_std"])
         with torch.amp.autocast(device_type=device.type, dtype=amp_dtype, enabled=amp_enabled):
-            pred_norm = model(x, fx_norm)
-        pred = pred_norm.float() * target_std + target_mean
+            pred_norm = model(x_norm, fx_norm)
+        pred = pred_norm.float() * vectors["y_std"].view(1, 1, -1) + vectors["y_mean"].view(1, 1, -1)
         rel_l2_values.append(float(relative_l2_torch(pred, y).cpu()))
         rmse_values.append(float(rmse_torch(pred, y).cpu()))
         max_error_values.append(float(max_value_error_torch(pred, y).cpu()))
@@ -252,9 +387,8 @@ def main() -> int:
     )
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=0)
     val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=0)
-    target_mean, target_std, feature_mean_cpu, feature_std_cpu = train_stats(train_dataset)
-    feature_mean = feature_mean_cpu.to(device=device, dtype=torch.float32)
-    feature_std = feature_std_cpu.to(device=device, dtype=torch.float32)
+    normalization = prepare_finetune_normalization(train_dataset, args=args)
+    vectors = normalization_vectors(normalization, device=device)
     model_config = {
         "fun_dim": train_dataset.fun_dim,
         "out_dim": train_dataset.out_dim,
@@ -310,15 +444,12 @@ def main() -> int:
         "min_lr_scale": args.min_lr_scale,
         "pct_start": args.pct_start,
         "max_grad_norm": args.max_grad_norm,
+        "normalization_protocol": args.normalization_protocol,
+        "normalization_config": str(args.normalization_config) if args.normalization_config else None,
         "seed": args.seed,
-        "target_mean": target_mean,
-        "target_std": target_std,
-        "normalization": {
-            "target_mean": target_mean,
-            "target_std": target_std,
-            "feature_mean": [float(value) for value in feature_mean_cpu.tolist()],
-            "feature_std": [float(value) for value in feature_std_cpu.tolist()],
-        },
+        "target_mean": float(normalization["target"]["mean"][0]),  # type: ignore[index]
+        "target_std": float(normalization["target"]["std"][0]),  # type: ignore[index]
+        "normalization": normalization,
         "amp": amp_enabled,
         "amp_dtype": args.amp_dtype if amp_enabled else None,
         "model": model_config,
@@ -345,11 +476,12 @@ def main() -> int:
             x = batch["x"].to(device=device, dtype=torch.float32)
             fx = batch["fx"].to(device=device, dtype=torch.float32)
             y = batch["y"].to(device=device, dtype=torch.float32)
-            fx_norm = (fx - feature_mean.view(1, 1, -1)) / feature_std.view(1, 1, -1)
-            y_norm = (y - target_mean) / target_std
+            x_norm = normalize_tensor(x, vectors["x_mean"], vectors["x_std"])
+            fx_norm = normalize_tensor(fx, vectors["fx_mean"], vectors["fx_std"])
+            y_norm = normalize_tensor(y, vectors["y_mean"], vectors["y_std"])
             optimizer.zero_grad(set_to_none=True)
             with torch.amp.autocast(device_type=device.type, dtype=amp_dtype, enabled=amp_enabled):
-                pred_norm = model(x, fx_norm)
+                pred_norm = model(x_norm, fx_norm)
                 loss = F.mse_loss(pred_norm, y_norm)
             if not torch.isfinite(loss):
                 raise RuntimeError(f"Non-finite D1 loss at epoch {epoch}: {float(loss.detach().cpu())}")
@@ -371,10 +503,7 @@ def main() -> int:
             device=device,
             amp_enabled=amp_enabled,
             amp_dtype=amp_dtype,
-            target_mean=target_mean,
-            target_std=target_std,
-            feature_mean=feature_mean,
-            feature_std=feature_std,
+            vectors=vectors,
         )
         metrics = {
             "epoch": epoch,
