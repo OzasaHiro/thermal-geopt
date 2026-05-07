@@ -47,17 +47,47 @@ split_path_for() {
   echo "$path"
 }
 
+split_has_train_sizes() {
+  local split_path="$1"
+  "$PY" - "$split_path" $TRAIN_SIZES <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+train_sizes = [int(value) for value in sys.argv[2:]]
+if not path.exists():
+    raise SystemExit(1)
+try:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+except Exception:
+    raise SystemExit(1)
+for train_size in train_sizes:
+    rows = payload.get(f"train_{train_size}")
+    if not isinstance(rows, list) or len(rows) != train_size:
+        raise SystemExit(1)
+raise SystemExit(0)
+PY
+}
+
+build_split() {
+  local split_seed="$1"
+  local split_path="$2"
+  mkdir -p "$(dirname "$split_path")"
+  echo "=== build split seed ${split_seed}: ${split_path} ==="
+  "$PY" scripts/build_label_scarcity_splits.py \
+    --base-split "$BASE_SPLIT" \
+    --output "$split_path" \
+    --train-sizes $TRAIN_SIZES \
+    --seed "$split_seed"
+}
+
 missing=0
 for SPLIT_SEED in $SPLIT_SEEDS; do
   GATE_SPLIT="$(split_path_for "$SPLIT_SEED")"
-  if [[ ! -e "$GATE_SPLIT" ]]; then
-    mkdir -p "$(dirname "$GATE_SPLIT")"
-    echo "=== build split seed ${SPLIT_SEED}: ${GATE_SPLIT} ==="
-    "$PY" scripts/build_label_scarcity_splits.py \
-      --base-split "$BASE_SPLIT" \
-      --output "$GATE_SPLIT" \
-      --train-sizes $TRAIN_SIZES \
-      --seed "$SPLIT_SEED"
+  if ! split_has_train_sizes "$GATE_SPLIT"; then
+    echo "Split missing or incomplete for seed ${SPLIT_SEED}; rebuilding: ${GATE_SPLIT}"
+    build_split "$SPLIT_SEED" "$GATE_SPLIT"
   fi
   for TRAIN_SEED in $TRAIN_SEEDS; do
     for N in $TRAIN_SIZES; do
