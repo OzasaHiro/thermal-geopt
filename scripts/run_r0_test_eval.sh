@@ -35,8 +35,11 @@ done
 split_path_for() {
   local split_seed="$1"
   local path="$GATE_SPLIT_PATTERN"
-  local needle="{split_seed}"
-  path="${path//$needle/$split_seed}"
+  path="${path//"{split_seed}"/$split_seed}"
+  path="${path//"{split_seed.json}"/"${split_seed}.json"}"
+  if [[ "$path" == *"{split_seed"* ]]; then
+    path="outputs/logs/r0_splits/d1_proxy_pilot_300_c5_n8192_label_scarcity_seed${split_seed}.json"
+  fi
   if [[ "$path" == *"{"* || "$path" == *"}"* ]]; then
     echo "Unresolved placeholder in GATE_SPLIT_PATTERN result: $path" >&2
     return 1
