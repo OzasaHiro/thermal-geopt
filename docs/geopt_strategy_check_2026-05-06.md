@@ -37,20 +37,21 @@ This is useful for plumbing, but weak for GeoPT evidence:
 - The pretraining scale is below the planned first-result scale and far below GeoPT's intended regime.
 - The current test does not include static-TDF, no-Brownian, or fluid-GeoPT transfer ablations.
 
-## Revised Gate Before Large Pretraining
+## Revised Gate Before P3/P4 Pretraining
 
-Before moving to P3/P4 large pretraining, run a smaller but GeoPT-correct gate:
+Before moving to P3/P4 large pretraining, run a smaller but GeoPT-correct gate. The current 6k legacy artifact is not enough for that gate; it is only a plumbing lower bound.
 
 | Item | Setting |
 |---|---|
-| pretraining lower bound | current 6k episodes |
-| pretraining next candidate | 500-2,000 shapes, 5k-40k episodes |
+| schema/loss lower bound | current 6k episodes or tiny D1-schema smoke |
+| P1 quality check | 500 shapes, 5k episodes |
+| P2 first-result checkpoint | 2,000 shapes, 40k episodes |
 | downstream train sizes | 10, 25, 50, 100 |
 | validation/test | fixed, unchanged across all groups |
 | groups | scratch, Thermal GeoPT full, static TDF-only, no-boundary-field/Brownian ablation |
 | success threshold | Thermal GeoPT improves relative L2 by about 10% at 25 or 50 labels, or reaches the same error with materially fewer epochs |
 
-Only if this gate is positive should we spend time/storage on P3 main pretraining.
+Only if the P2 + solver-backed D1 gate is positive should we spend time/storage on P3 main pretraining.
 
 ## Immediate Action
 

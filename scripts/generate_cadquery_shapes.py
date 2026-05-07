@@ -100,10 +100,146 @@ def make_channel_block(rng: np.random.Generator) -> tuple[cq.Workplane, dict[str
     return shape, params
 
 
+def make_louver_fin_simple(rng: np.random.Generator) -> tuple[cq.Workplane, dict[str, object]]:
+    width = float(rng.uniform(0.8, 1.4))
+    depth = float(rng.uniform(0.7, 1.2))
+    base_height = float(rng.uniform(0.06, 0.14))
+    fin_height = float(rng.uniform(0.22, 0.55))
+    fin_count = int(rng.integers(5, 12))
+    fin_thickness = float(rng.uniform(0.018, 0.045))
+    louver_angle = float(rng.uniform(12.0, 32.0))
+    margin = 0.08 * width
+    pitch = (width - 2.0 * margin) / max(fin_count - 1, 1)
+
+    shape = cq.Workplane("XY").box(width, depth, base_height)
+    for idx in range(fin_count):
+        x = -0.5 * width + margin + idx * pitch
+        fin = (
+            cq.Workplane("XY")
+            .box(fin_thickness, depth * 0.88, fin_height)
+            .rotate((0.0, 0.0, 0.0), (0.0, 1.0, 0.0), louver_angle)
+            .translate((x, 0.0, 0.5 * base_height + 0.5 * fin_height))
+        )
+        shape = shape.union(fin)
+
+    params = {
+        "family": "louver_fin_simple",
+        "width": width,
+        "depth": depth,
+        "base_height": base_height,
+        "fin_height": fin_height,
+        "fin_count": fin_count,
+        "fin_thickness": fin_thickness,
+        "louver_angle": louver_angle,
+    }
+    return shape, params
+
+
+def make_ribbed_bracket(rng: np.random.Generator) -> tuple[cq.Workplane, dict[str, object]]:
+    width = float(rng.uniform(0.75, 1.25))
+    depth = float(rng.uniform(0.55, 1.0))
+    base_height = float(rng.uniform(0.06, 0.16))
+    wall_height = float(rng.uniform(0.25, 0.65))
+    wall_thickness = float(rng.uniform(0.04, 0.09))
+    rib_count = int(rng.integers(2, 5))
+    rib_thickness = float(rng.uniform(0.035, 0.08))
+
+    shape = cq.Workplane("XY").box(width, depth, base_height)
+    wall = cq.Workplane("XY").box(width, wall_thickness, wall_height).translate(
+        (0.0, -0.5 * depth + 0.5 * wall_thickness, 0.5 * base_height + 0.5 * wall_height)
+    )
+    shape = shape.union(wall)
+
+    xs = np.linspace(-0.35 * width, 0.35 * width, rib_count)
+    for x in xs:
+        rib = cq.Workplane("XY").box(rib_thickness, depth * 0.72, wall_height * 0.72).translate(
+            (float(x), -0.12 * depth, 0.5 * base_height + 0.36 * wall_height)
+        )
+        shape = shape.union(rib)
+
+    params = {
+        "family": "ribbed_bracket",
+        "width": width,
+        "depth": depth,
+        "base_height": base_height,
+        "wall_height": wall_height,
+        "wall_thickness": wall_thickness,
+        "rib_count": rib_count,
+        "rib_thickness": rib_thickness,
+    }
+    return shape, params
+
+
+def make_annular_casing(rng: np.random.Generator) -> tuple[cq.Workplane, dict[str, object]]:
+    outer_radius = float(rng.uniform(0.38, 0.7))
+    inner_radius = float(outer_radius * rng.uniform(0.28, 0.48))
+    height = float(rng.uniform(0.16, 0.35))
+    outlet_length = float(rng.uniform(0.28, 0.55))
+    outlet_width = float(rng.uniform(0.16, 0.3))
+    boss_radius = float(inner_radius * rng.uniform(0.35, 0.55))
+
+    shell = cq.Workplane("XY").circle(outer_radius).extrude(height).translate((0.0, 0.0, -0.5 * height))
+    bore = cq.Workplane("XY").circle(inner_radius).extrude(height * 1.4).translate((0.0, 0.0, -0.7 * height))
+    shape = shell.cut(bore)
+    outlet = cq.Workplane("XY").box(outlet_length, outlet_width, height).translate(
+        (outer_radius + 0.5 * outlet_length - 0.04, 0.0, 0.0)
+    )
+    boss = cq.Workplane("XY").circle(boss_radius).extrude(height * 0.7).translate((0.0, 0.0, -0.35 * height))
+    shape = shape.union(outlet).union(boss)
+
+    params = {
+        "family": "annular_casing",
+        "outer_radius": outer_radius,
+        "inner_radius": inner_radius,
+        "height": height,
+        "outlet_length": outlet_length,
+        "outlet_width": outlet_width,
+        "boss_radius": boss_radius,
+    }
+    return shape, params
+
+
+def make_airfoil_extrusion(rng: np.random.Generator) -> tuple[cq.Workplane, dict[str, object]]:
+    chord = float(rng.uniform(0.7, 1.3))
+    thickness = float(rng.uniform(0.08, 0.16))
+    span = float(rng.uniform(0.22, 0.55))
+    camber = float(rng.uniform(-0.025, 0.04))
+    sample_count = 28
+    x = np.linspace(0.0, 1.0, sample_count)
+    yt = 5.0 * thickness * (
+        0.2969 * np.sqrt(np.maximum(x, 1e-8))
+        - 0.1260 * x
+        - 0.3516 * x**2
+        + 0.2843 * x**3
+        - 0.1015 * x**4
+    )
+    camber_line = camber * np.sin(np.pi * x)
+    upper = [(float(chord * (xi - 0.5)), float(chord * (yi + ci))) for xi, yi, ci in zip(x, yt, camber_line)]
+    lower = [
+        (float(chord * (xi - 0.5)), float(chord * (-yi + ci)))
+        for xi, yi, ci in zip(x[::-1], yt[::-1], camber_line[::-1])
+    ]
+    profile = upper + lower
+    shape = cq.Workplane("XY").polyline(profile).close().extrude(span).translate((0.0, 0.0, -0.5 * span))
+
+    params = {
+        "family": "airfoil_extrusion",
+        "chord": chord,
+        "thickness": thickness,
+        "span": span,
+        "camber": camber,
+    }
+    return shape, params
+
+
 FAMILIES = {
+    "airfoil_extrusion": make_airfoil_extrusion,
+    "annular_casing": make_annular_casing,
     "plate_fin": make_plate_fin_heat_sink,
     "pin_fin": make_pin_fin_heat_sink,
     "channel_block": make_channel_block,
+    "louver_fin_simple": make_louver_fin_simple,
+    "ribbed_bracket": make_ribbed_bracket,
 }
 
 

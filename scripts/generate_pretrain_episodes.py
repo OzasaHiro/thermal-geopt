@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate tiny Thermal GeoPT pretraining shards from processed meshes."""
+"""Generate Thermal GeoPT pretraining shards from processed meshes."""
 
 from __future__ import annotations
 
@@ -47,6 +47,38 @@ def log_uniform(rng: np.random.Generator, low: float, high: float) -> float:
     return float(np.exp(rng.uniform(np.log(low), np.log(high))))
 
 
+def family_name(path: Path) -> str:
+    prefix, separator, suffix = path.stem.rpartition("_")
+    if separator and suffix.isdigit():
+        return prefix
+    return path.stem
+
+
+def select_processed_paths(processed_paths: list[Path], *, max_shapes: int, selection: str) -> list[Path]:
+    if max_shapes <= 0 or max_shapes >= len(processed_paths):
+        return processed_paths
+    if selection == "first":
+        return processed_paths[:max_shapes]
+    if selection != "balanced":
+        raise ValueError(f"Unknown selection mode: {selection}")
+
+    groups: dict[str, list[Path]] = {}
+    for path in processed_paths:
+        groups.setdefault(family_name(path), []).append(path)
+    selected: list[Path] = []
+    while len(selected) < max_shapes:
+        added = False
+        for family in sorted(groups):
+            if groups[family]:
+                selected.append(groups[family].pop(0))
+                added = True
+                if len(selected) >= max_shapes:
+                    break
+        if not added:
+            break
+    return selected
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--processed-dir", type=Path, default=Path("data/meshes_processed/cadquery"))
@@ -54,7 +86,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--episodes-per-shape", type=int, default=2)
     parser.add_argument("--points-per-episode", type=int, default=2048)
     parser.add_argument("--max-shapes", type=int, default=0)
+    parser.add_argument(
+        "--selection",
+        choices=["first", "balanced"],
+        default="first",
+        help="How to choose --max-shapes from the processed mesh list. Use balanced for multi-family pretraining.",
+    )
     parser.add_argument("--steps", type=int, default=2)
+    parser.add_argument(
+        "--condition-schema",
+        choices=["legacy", "d1_thermal"],
+        default="legacy",
+        help=(
+            "legacy: alpha/conductivity/q_near prompt. "
+            "d1_thermal: conductivity/source_temperature/sink_temperature/source_patch/sink_patch/nearest_boundary_distance."
+        ),
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--overwrite", action="store_true")
     return parser.parse_args()
@@ -63,8 +110,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     processed_paths = sorted(args.processed_dir.glob("*.npz"))
-    if args.max_shapes > 0:
-        processed_paths = processed_paths[: args.max_shapes]
+    processed_paths = select_processed_paths(processed_paths, max_shapes=args.max_shapes, selection=args.selection)
     if not processed_paths:
         raise SystemExit(f"No processed mesh npz files found in {args.processed_dir}")
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -106,15 +152,53 @@ def main() -> int:
                 return_names=True,
             )
             feature_names = names
-            boundary_field = sample_rbf_boundary_field(
-                boundary_points,
-                num_patches=8,
-                seed=args.seed + mesh_index * 1000 + episode_index,
-            )
-            q_near = nearest_boundary_field_values(query_points, boundary_points, boundary_field)[:, None]
-            alpha_col = np.full((args.points_per_episode, 1), alpha, dtype=np.float32)
             conductivity_col = np.full((args.points_per_episode, 1), conductivity, dtype=np.float32)
-            cond = np.concatenate([alpha_col, conductivity_col, q_near], axis=1)
+            if args.condition_schema == "legacy":
+                boundary_field = sample_rbf_boundary_field(
+                    boundary_points,
+                    num_patches=8,
+                    seed=args.seed + mesh_index * 1000 + episode_index,
+                )
+                q_near = nearest_boundary_field_values(query_points, boundary_points, boundary_field)[:, None]
+                alpha_col = np.full((args.points_per_episode, 1), alpha, dtype=np.float32)
+                cond = np.concatenate([alpha_col, conductivity_col, q_near], axis=1)
+                condition_names = ["alpha", "conductivity", "q_near"]
+                source_temperature = None
+                sink_temperature = None
+            else:
+                feature_lookup = {name: idx for idx, name in enumerate(names)}
+                required = ["source_proximity", "sink_proximity", "distance"]
+                missing = [name for name in required if name not in feature_lookup]
+                if missing:
+                    raise RuntimeError(f"Cannot build d1_thermal condition schema; missing TDF features: {missing}")
+                source_temperature = float(rng.uniform(360.0, 430.0))
+                sink_temperature = float(rng.uniform(280.0, 310.0))
+                if source_temperature < sink_temperature + 40.0:
+                    source_temperature = sink_temperature + float(rng.uniform(40.0, 90.0))
+                source_temperature_col = np.full((args.points_per_episode, 1), source_temperature, dtype=np.float32)
+                sink_temperature_col = np.full((args.points_per_episode, 1), sink_temperature, dtype=np.float32)
+                source_patch = features[:, feature_lookup["source_proximity"] : feature_lookup["source_proximity"] + 1]
+                sink_patch = features[:, feature_lookup["sink_proximity"] : feature_lookup["sink_proximity"] + 1]
+                nearest_boundary_distance = features[:, feature_lookup["distance"] : feature_lookup["distance"] + 1]
+                cond = np.concatenate(
+                    [
+                        conductivity_col,
+                        source_temperature_col,
+                        sink_temperature_col,
+                        source_patch.astype(np.float32),
+                        sink_patch.astype(np.float32),
+                        nearest_boundary_distance.astype(np.float32),
+                    ],
+                    axis=1,
+                )
+                condition_names = [
+                    "conductivity",
+                    "source_temperature",
+                    "sink_temperature",
+                    "source_patch",
+                    "sink_patch",
+                    "nearest_boundary_distance",
+                ]
 
             trajectory = simulate_brownian_walk(
                 query_points,
@@ -140,6 +224,10 @@ def main() -> int:
                     "episode_index": episode_index,
                     "alpha": alpha,
                     "conductivity": conductivity,
+                    "source_temperature": source_temperature,
+                    "sink_temperature": sink_temperature,
+                    "source_center": source_center.reshape(-1).astype(float).tolist(),
+                    "sink_center": sink_center.reshape(-1).astype(float).tolist(),
                 }
             )
 
@@ -160,7 +248,8 @@ def main() -> int:
         meta = {
             "processed_path": str(processed_path),
             "feature_names": feature_names,
-            "condition_names": ["alpha", "conductivity", "q_near"],
+            "condition_names": condition_names,
+            "condition_schema": args.condition_schema,
             "episodes": episode_meta,
         }
         (shard_path / "meta.json").write_text(json.dumps(meta, indent=2))
@@ -168,20 +257,25 @@ def main() -> int:
             {
                 "shard": str(shard_path),
                 "sample": processed_path.stem,
+                "family": family_name(processed_path),
                 "episodes": args.episodes_per_shape,
                 "points_per_episode": args.points_per_episode,
                 "feature_dim": len(feature_names or []),
+                "condition_schema": args.condition_schema,
+                "condition_dim": len(condition_names),
             }
         )
         print(shard_records[-1])
         shard_index += 1
 
     manifest = {
-        "description": "Tiny Thermal GeoPT pretraining shards.",
+        "description": "Thermal GeoPT pretraining shards.",
         "processed_dir": str(args.processed_dir),
         "output_dir": str(args.output_dir),
         "episodes_per_shape": args.episodes_per_shape,
         "points_per_episode": args.points_per_episode,
+        "selection": args.selection,
+        "condition_schema": args.condition_schema,
         "steps": args.steps,
         "seed": args.seed,
         "shards": shard_records,

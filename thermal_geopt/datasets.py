@@ -122,6 +122,7 @@ class PretrainZarrDataset(Dataset):
                 "full": "full",
                 "no_boundary_field": "zero_boundary_field",
                 "static_tdf_only": "zero_all",
+                "dynamics_lifted": "full",
             }[ablation]
         if condition_mode not in PRETRAIN_CONDITION_MODES:
             raise ValueError(
@@ -207,7 +208,7 @@ class PretrainZarrDataset(Dataset):
         x = np.asarray(group["x"][episode], dtype=np.float32)
         cond = np.asarray(group["cond"][episode], dtype=np.float32)
         if self.condition_mode == "zero_boundary_field":
-            for field_name in ("q_near", "boundary_field", "heat_flux_near"):
+            for field_name in ("q_near", "boundary_field", "heat_flux_near", "source_patch", "sink_patch"):
                 if field_name in self.condition_names:
                     cond[:, self.condition_names.index(field_name)] = 0.0
         elif self.condition_mode == "zero_all":

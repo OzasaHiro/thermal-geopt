@@ -18,7 +18,7 @@ Going forward:
 2. Freeze R0 as a diagnostic result, not a research result.
 3. Move the main downstream task to solver-backed D1 solid conduction.
 4. Move the main pretraining line to dynamics-lifted Thermal GeoPT.
-5. Defer large-scale pretraining until D1 solver-backed results show transfer value.
+5. Prepare D1-aligned P1/P2 dynamics-lifted pretraining data; reserve P3/P4 scale-up until solver-backed D1 shows transfer value.
 
 ## Detailed Plan Alignment
 
@@ -166,10 +166,10 @@ Pretraining target:
 Short-term checkpoint:
 
 ```text
-outputs/checkpoints/pretrain_r1_dynamics_lifted_no_boundary_ep2
+outputs/checkpoints/pretrain_r1_d1_thermal_dynamics_p2_ep20
 ```
 
-This is not paper-scale pretraining. It is a pilot to verify transfer direction.
+This is not paper-scale pretraining. It is the first-result scale used to test transfer direction. Tiny/P1 runs are only schema, data-quality, and throughput checks.
 
 ### M3: D1 Solver-Backed Label Efficiency Gate
 
@@ -209,7 +209,7 @@ Go condition:
 
 ### M4: Pretraining Scale-Up
 
-Only after M3 passes.
+P1/P2 are part of making M3 meaningful. P3/P4 are the scale-up stages and should happen only after M3 passes.
 
 Scale targets from detailed plan:
 
@@ -220,6 +220,12 @@ Scale targets from detailed plan:
 | P3 main | 8,000 | 160,000 |
 
 Do not run P2/P3 just because R0 proxy has a weak signal. Scale-up requires solver-backed D1 evidence.
+
+More precise rule:
+
+- P1: run for quality and throughput checks.
+- P2: run for the first solver-backed D1 transfer gate.
+- P3/P4: run only after P2 + solver-backed D1 gives a positive signal.
 
 ### M5: D2 Simplified CHT
 
@@ -255,7 +261,7 @@ Stronger paper:
 1. Stop using D1 proxy as evidence.
 2. Implement or integrate solver-backed D1 solid conduction data generation.
 3. Add evaluation for maxT and hotspot.
-4. Run R1 dynamics-lifted pretraining only as a pilot baseline while D1 solver work is built.
+4. Prepare R1 D1-aligned dynamics-lifted P1/P2 pretraining data while D1 solver work is built.
 5. Re-run label-scarcity only on solver-backed D1.
 
 ## Bottom Line

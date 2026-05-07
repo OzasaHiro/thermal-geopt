@@ -25,19 +25,12 @@ $PY scripts/run_smoke_pipeline.py --overwrite
 $PY scripts/generate_cadquery_shapes.py \
   --output-dir data/meshes_raw/cadquery_pilot_300 \
   --num-per-family 100 \
+  --families channel_block plate_fin pin_fin \
   --seed 42 \
   --overwrite
 ```
 
-本格pretraining前の候補:
-
-```bash
-$PY scripts/generate_cadquery_shapes.py \
-  --output-dir data/meshes_raw/cadquery_pretrain_3000 \
-  --num-per-family 1000 \
-  --seed 42 \
-  --overwrite
-```
+R1本命のP1/P2/P3形状生成は、下の「Pretraining episode生成」にあるD1 thermal schema用コマンドを使う。
 
 ## 2. メッシュ前処理
 
@@ -52,20 +45,11 @@ $PY scripts/preprocess_meshes.py \
   --overwrite
 ```
 
-本格pretraining候補:
-
-```bash
-$PY scripts/preprocess_meshes.py \
-  --input-dir data/meshes_raw/cadquery_pretrain_3000 \
-  --output-dir data/meshes_processed/cadquery_pretrain_3000 \
-  --surface-points 8192 \
-  --seed 42 \
-  --overwrite
-```
+R1本命のP1/P2/P3前処理も、下のD1 thermal schema用コマンドに含めている。
 
 ## 3. Pretraining episode生成
 
-まず小さめ:
+旧pilot artifactを再生成する場合。これはlegacy schemaなので、R1本命ではなく過去結果の再現用:
 
 ```bash
 $PY scripts/generate_pretrain_episodes.py \
@@ -78,15 +62,101 @@ $PY scripts/generate_pretrain_episodes.py \
   --overwrite
 ```
 
-RTX 5070 Ti向けの初期候補:
+R1本命は `--condition-schema d1_thermal` を使う。P1は品質・速度確認用で、有効性主張には使わない:
+
+```bash
+$PY scripts/generate_cadquery_shapes.py \
+  --output-dir data/meshes_raw/cadquery_p1_700 \
+  --num-per-family 100 \
+  --seed 42 \
+  --overwrite
+```
+
+```bash
+$PY scripts/preprocess_meshes.py \
+  --input-dir data/meshes_raw/cadquery_p1_700 \
+  --output-dir data/meshes_processed/cadquery_p1_700 \
+  --surface-points 8192 \
+  --seed 42 \
+  --overwrite
+```
 
 ```bash
 $PY scripts/generate_pretrain_episodes.py \
-  --processed-dir data/meshes_processed/cadquery_pretrain_3000 \
-  --output-dir data/pretrain_zarr/cadquery_pretrain_3000_e20_n8192 \
+  --processed-dir data/meshes_processed/cadquery_p1_700 \
+  --output-dir data/pretrain_zarr/cadquery_p1_d1_thermal_500_e10_n5120 \
+  --max-shapes 500 \
+  --selection balanced \
+  --episodes-per-shape 10 \
+  --points-per-episode 5120 \
+  --steps 2 \
+  --condition-schema d1_thermal \
+  --seed 42 \
+  --overwrite
+```
+
+P2はGeoPT有効性の初判定に使う最小候補:
+
+```bash
+$PY scripts/generate_cadquery_shapes.py \
+  --output-dir data/meshes_raw/cadquery_p2_2100 \
+  --num-per-family 300 \
+  --seed 42 \
+  --overwrite
+```
+
+```bash
+$PY scripts/preprocess_meshes.py \
+  --input-dir data/meshes_raw/cadquery_p2_2100 \
+  --output-dir data/meshes_processed/cadquery_p2_2100 \
+  --surface-points 12288 \
+  --seed 42 \
+  --overwrite
+```
+
+```bash
+$PY scripts/generate_pretrain_episodes.py \
+  --processed-dir data/meshes_processed/cadquery_p2_2100 \
+  --output-dir data/pretrain_zarr/cadquery_p2_d1_thermal_2000_e20_n8192 \
+  --max-shapes 2000 \
+  --selection balanced \
   --episodes-per-shape 20 \
   --points-per-episode 8192 \
   --steps 2 \
+  --condition-schema d1_thermal \
+  --seed 42 \
+  --overwrite
+```
+
+P3は論文主結果の最低ライン。P2 + solver-backed D1 gate が陽性の場合のみ実行:
+
+```bash
+$PY scripts/generate_cadquery_shapes.py \
+  --output-dir data/meshes_raw/cadquery_p3_8400 \
+  --num-per-family 1200 \
+  --seed 42 \
+  --overwrite
+```
+
+```bash
+$PY scripts/preprocess_meshes.py \
+  --input-dir data/meshes_raw/cadquery_p3_8400 \
+  --output-dir data/meshes_processed/cadquery_p3_8400 \
+  --surface-points 16384 \
+  --seed 42 \
+  --overwrite
+```
+
+```bash
+$PY scripts/generate_pretrain_episodes.py \
+  --processed-dir data/meshes_processed/cadquery_p3_8400 \
+  --output-dir data/pretrain_zarr/cadquery_p3_d1_thermal_8000_e20_n9216 \
+  --max-shapes 8000 \
+  --selection balanced \
+  --episodes-per-shape 20 \
+  --points-per-episode 9216 \
+  --steps 2 \
+  --condition-schema d1_thermal \
   --seed 42 \
   --overwrite
 ```
@@ -126,6 +196,26 @@ $PY scripts/inspect_artifacts.py \
   data/downstream_npz/d1_proxy_pilot_300_c5_n8192/manifest.json
 ```
 
+R1 pretraining shardsは専用checkerで規模とschemaを確認する:
+
+```bash
+$PY scripts/check_pretrain_readiness.py \
+  data/pretrain_zarr/cadquery_p1_d1_thermal_500_e10_n5120/manifest.json \
+  --require-phase P1
+```
+
+```bash
+$PY scripts/check_pretrain_readiness.py \
+  data/pretrain_zarr/cadquery_p2_d1_thermal_2000_e20_n8192/manifest.json \
+  --require-phase P2
+```
+
+```bash
+$PY scripts/check_pretrain_readiness.py \
+  data/pretrain_zarr/cadquery_p3_d1_thermal_8000_e20_n9216/manifest.json \
+  --require-phase P3
+```
+
 未追加の場合は、まず以下でファイル数を確認する。
 
 ```bash
@@ -159,7 +249,9 @@ bash scripts/run_r0_test_eval.sh
 
 詳細と smoke は `docs/r0_replication_commands.md` を参照。
 
-R1: GeoPT 本来の dynamics-lifted pretraining への戻し
+R1: GeoPT 本来の dynamics-lifted pretraining への戻し。
+
+既存300-shape artifactで短いschema smokeだけ行う場合:
 
 ```bash
 $PY scripts/train_pretrain.py \
@@ -170,6 +262,42 @@ $PY scripts/train_pretrain.py \
   --epochs 2 \
   --batch-size 1 \
   --point-budget 4096 \
+  --max-episodes 0 \
+  --amp \
+  --amp-dtype bfloat16 \
+  --device cuda \
+  --seed 42
+```
+
+本命のP2 checkpoint候補:
+
+```bash
+$PY scripts/train_pretrain.py \
+  --manifest data/pretrain_zarr/cadquery_p2_d1_thermal_2000_e20_n8192/manifest.json \
+  --output-dir outputs/checkpoints/pretrain_r1_d1_thermal_dynamics_p2_ep20 \
+  --pretext-ablation dynamics_lifted \
+  --condition-mode full \
+  --epochs 20 \
+  --batch-size 1 \
+  --point-budget 8192 \
+  --max-episodes 0 \
+  --amp \
+  --amp-dtype bfloat16 \
+  --device cuda \
+  --seed 42
+```
+
+P3 training template:
+
+```bash
+$PY scripts/train_pretrain.py \
+  --manifest data/pretrain_zarr/cadquery_p3_d1_thermal_8000_e20_n9216/manifest.json \
+  --output-dir outputs/checkpoints/pretrain_r1_d1_thermal_dynamics_p3_ep100 \
+  --pretext-ablation dynamics_lifted \
+  --condition-mode full \
+  --epochs 100 \
+  --batch-size 1 \
+  --point-budget 9216 \
   --max-episodes 0 \
   --amp \
   --amp-dtype bfloat16 \
