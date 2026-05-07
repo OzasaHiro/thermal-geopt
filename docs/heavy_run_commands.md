@@ -179,6 +179,28 @@ $PY scripts/train_pretrain.py \
 
 詳細は `docs/r1_dynamics_lifted_pretraining.md` を参照。
 
-## 7. Git管理
+## 7. M1 solver-backed D1 OpenFOAM pilot
+
+OpenFOAM Foundation v13 `laplacianFoam` でD1 solid-conduction block pilotを生成する。
+現在のblockMesh版50ケースは通常「数分程度」の想定だが、OpenFOAMをケース数分起動するため手元実行に回す。
+
+```bash
+OVERWRITE=1 bash scripts/run_m1_openfoam_pilot.sh
+```
+
+短い確認だけ先に行う場合:
+
+```bash
+CASE_COUNT=10 CELLS_X=8 CELLS_Y=8 CELLS_Z=8 \
+RAW_DIR=data/downstream_raw/d1_openfoam_block_pilot_10_smoke \
+NPZ_DIR=data/downstream_npz/d1_openfoam_block_pilot_10_smoke \
+SPLIT_PATH=configs/d1_openfoam_block_pilot_10_smoke_split_seed42.json \
+BASELINE_JSON=outputs/logs/d1_openfoam_block_pilot_10_smoke_baseline_test.json \
+OVERWRITE=1 bash scripts/run_m1_openfoam_pilot.sh
+```
+
+このrunnerは内部で `/opt/openfoam13/etc/bashrc` をsourceする。
+
+## 8. Git管理
 
 生成データは `.gitignore` 対象なのでGitに入れない。コード・設定・軽量Markdownだけをコミットする。

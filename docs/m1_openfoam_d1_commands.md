@@ -52,12 +52,27 @@ Then build splits:
 
 ```bash
 ../../.venv/bin/python scripts/build_splits.py \
-  --manifest data/downstream_npz/d1_openfoam_block_pilot_50/manifest.json \
+  --input-manifest data/downstream_npz/d1_openfoam_block_pilot_50/manifest.json \
   --output configs/d1_openfoam_block_pilot_50_split_seed42.json \
   --train-frac 0.7 \
   --val-frac 0.15 \
   --seed 42
 ```
+
+The same pilot preparation can be run as one script:
+
+```bash
+OVERWRITE=1 bash scripts/run_m1_openfoam_pilot.sh
+```
+
+Useful overrides:
+
+```bash
+CASE_COUNT=10 CELLS_X=8 CELLS_Y=8 CELLS_Z=8 OVERWRITE=1 \
+  bash scripts/run_m1_openfoam_pilot.sh
+```
+
+The runner sources `/opt/openfoam13/etc/bashrc` internally.
 
 ## 3. Downstream Smoke
 
