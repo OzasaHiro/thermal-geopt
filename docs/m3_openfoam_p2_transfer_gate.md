@@ -93,6 +93,29 @@ bash scripts/run_m3_openfoam_p2_transfer_gate.sh
 
 Use `best_model.pt` from the P2 pretraining run. The final `model.pt` overtrained after epoch 11 and should not be used for transfer.
 
+The default runner keeps the historical equal-optimizer protocol: scratch and pretrained fine-tuning both use `lr=1e-3` unless overridden. This is useful as an aggressive stress test, but it is not the fairest pretraining-efficacy protocol because it can overwrite useful pretrained backbone weights. See `docs/m3_finetuning_protocol_review_2026-05-07.md` for the full protocol rationale.
+
+For the fairer fine-tuning protocol, rerun with a lower LR on tensors loaded from pretraining and a higher LR on the newly initialized output head:
+
+```bash
+MODE=all \
+RUN_PREFIX=m3_openfoam_p2_ft_tuned_oclr \
+TRAIN_SIZES="10 25 50 100" \
+SPLIT_SEEDS="42 43 44" \
+EPOCHS=100 \
+POINT_BUDGET=3072 \
+EVAL_POINT_BUDGET=3072 \
+EXPECTED_CASE_COUNT=45 \
+SCRATCH_LR=1e-3 \
+PRETRAINED_BACKBONE_LR=3e-4 \
+PRETRAINED_HEAD_LR=1e-3 \
+FREEZE_PRETRAINED_BACKBONE_EPOCHS=5 \
+FINETUNE_SCHEDULER=onecycle \
+FINETUNE_PCT_START=0.3 \
+MAX_GRAD_NORM=1.0 \
+bash scripts/run_m3_openfoam_p2_transfer_gate.sh
+```
+
 Positive signal:
 
 - `dynamics_lifted` improves scratch by about 10% relative L2 at 25 or 50 labels, or

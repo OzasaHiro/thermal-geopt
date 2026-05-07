@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import sys
 import time
 from pathlib import Path
@@ -45,7 +46,30 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-train-cases", type=int, default=64)
     parser.add_argument("--max-val-cases", type=int, default=32)
     parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument(
+        "--pretrained-backbone-lr",
+        type=float,
+        default=None,
+        help="Optional lower LR for tensors loaded from a pretrained checkpoint. Defaults to --lr.",
+    )
+    parser.add_argument(
+        "--pretrained-head-lr",
+        type=float,
+        default=None,
+        help="Optional LR for newly initialized tensors when fine-tuning from a checkpoint. Defaults to --lr.",
+    )
+    parser.add_argument(
+        "--freeze-pretrained-backbone-epochs",
+        type=int,
+        default=0,
+        help="If >0, freeze pretrained-loaded tensors for the first N epochs and train only newly initialized tensors.",
+    )
     parser.add_argument("--weight-decay", type=float, default=1e-5)
+    parser.add_argument("--scheduler", choices=["none", "warmup_cosine", "onecycle"], default="none")
+    parser.add_argument("--warmup-ratio", type=float, default=0.05)
+    parser.add_argument("--min-lr-scale", type=float, default=1e-2)
+    parser.add_argument("--pct-start", type=float, default=0.3)
+    parser.add_argument("--max-grad-norm", type=float, default=None)
     parser.add_argument("--n-hidden", type=int, default=256)
     parser.add_argument("--n-layers", type=int, default=8)
     parser.add_argument("--n-heads", type=int, default=8)
@@ -109,6 +133,103 @@ def evaluate(
     }
 
 
+def split_pretrained_parameter_names(
+    model: torch.nn.Module,
+    init_report: dict[str, object] | None,
+) -> tuple[set[str], set[str]]:
+    """Return parameter names for loaded pretrained tensors and newly initialized tensors."""
+    missing = set()
+    if init_report is not None:
+        missing = set(str(name) for name in init_report.get("missing_tensor_names", []))
+    head_names = {name for name, _ in model.named_parameters() if name in missing}
+    backbone_names = {name for name, _ in model.named_parameters() if name not in head_names}
+    return backbone_names, head_names
+
+
+def build_optimizer(
+    model: torch.nn.Module,
+    *,
+    args: argparse.Namespace,
+    init_report: dict[str, object] | None,
+) -> tuple[torch.optim.Optimizer, dict[str, object]]:
+    if args.pretrained_model_dir is None or (
+        args.pretrained_backbone_lr is None
+        and args.pretrained_head_lr is None
+        and args.freeze_pretrained_backbone_epochs <= 0
+    ):
+        optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+        return optimizer, {"mode": "single", "lr": args.lr, "weight_decay": args.weight_decay}
+
+    backbone_lr = args.pretrained_backbone_lr if args.pretrained_backbone_lr is not None else args.lr
+    head_lr = args.pretrained_head_lr if args.pretrained_head_lr is not None else args.lr
+    backbone_names, head_names = split_pretrained_parameter_names(model, init_report)
+    backbone_params = [param for name, param in model.named_parameters() if name in backbone_names]
+    head_params = [param for name, param in model.named_parameters() if name in head_names]
+    param_groups = [{"params": backbone_params, "lr": backbone_lr, "name": "pretrained_backbone"}]
+    if head_params:
+        param_groups.append({"params": head_params, "lr": head_lr, "name": "new_head"})
+    optimizer = torch.optim.AdamW(param_groups, weight_decay=args.weight_decay)
+    return optimizer, {
+        "mode": "pretrained_param_groups",
+        "lr": args.lr,
+        "pretrained_backbone_lr": backbone_lr,
+        "pretrained_head_lr": head_lr,
+        "weight_decay": args.weight_decay,
+        "pretrained_backbone_param_count": sum(param.numel() for param in backbone_params),
+        "new_head_param_count": sum(param.numel() for param in head_params),
+        "new_head_names": sorted(head_names),
+        "freeze_pretrained_backbone_epochs": args.freeze_pretrained_backbone_epochs,
+    }
+
+
+def create_scheduler(
+    optimizer: torch.optim.Optimizer,
+    *,
+    scheduler_name: str,
+    total_steps: int,
+    warmup_ratio: float,
+    min_lr_scale: float,
+    pct_start: float,
+) -> torch.optim.lr_scheduler.LRScheduler | None:
+    if scheduler_name == "none":
+        return None
+    total_steps = max(int(total_steps), 1)
+    if scheduler_name == "onecycle":
+        return torch.optim.lr_scheduler.OneCycleLR(
+            optimizer,
+            max_lr=[group["lr"] for group in optimizer.param_groups],
+            total_steps=total_steps,
+            pct_start=pct_start,
+        )
+    warmup_steps = int(total_steps * warmup_ratio)
+    warmup_steps = max(0, min(warmup_steps, total_steps - 1)) if total_steps > 1 else 0
+
+    def lr_lambda(step: int) -> float:
+        if warmup_steps > 0 and step < warmup_steps:
+            return float(step + 1) / float(warmup_steps)
+        if total_steps <= warmup_steps + 1:
+            return 1.0
+        progress = float(step - warmup_steps) / float(total_steps - warmup_steps - 1)
+        cosine = 0.5 * (1.0 + math.cos(math.pi * progress))
+        return min_lr_scale + (1.0 - min_lr_scale) * cosine
+
+    return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
+
+
+def apply_pretrained_freeze(
+    model: torch.nn.Module,
+    *,
+    init_report: dict[str, object] | None,
+    freeze_backbone: bool,
+) -> None:
+    backbone_names, _ = split_pretrained_parameter_names(model, init_report)
+    for name, param in model.named_parameters():
+        if name in backbone_names:
+            param.requires_grad = not freeze_backbone
+        else:
+            param.requires_grad = True
+
+
 def main() -> int:
     args = parse_args()
     set_seed(args.seed)
@@ -154,7 +275,15 @@ def main() -> int:
             device="cpu",
         )
         print({"pretrained_load": init_report})
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    optimizer, optimizer_config = build_optimizer(model, args=args, init_report=init_report)
+    scheduler = create_scheduler(
+        optimizer,
+        scheduler_name=args.scheduler,
+        total_steps=args.epochs * max(len(train_loader), 1),
+        warmup_ratio=args.warmup_ratio,
+        min_lr_scale=args.min_lr_scale,
+        pct_start=args.pct_start,
+    )
     amp_enabled = args.amp and device.type == "cuda"
     amp_dtype = torch.bfloat16 if args.amp_dtype == "bfloat16" else torch.float16
 
@@ -172,7 +301,15 @@ def main() -> int:
         "max_train_cases": args.max_train_cases,
         "max_val_cases": args.max_val_cases,
         "lr": args.lr,
+        "pretrained_backbone_lr": args.pretrained_backbone_lr,
+        "pretrained_head_lr": args.pretrained_head_lr,
+        "freeze_pretrained_backbone_epochs": args.freeze_pretrained_backbone_epochs,
         "weight_decay": args.weight_decay,
+        "scheduler": args.scheduler,
+        "warmup_ratio": args.warmup_ratio,
+        "min_lr_scale": args.min_lr_scale,
+        "pct_start": args.pct_start,
+        "max_grad_norm": args.max_grad_norm,
         "seed": args.seed,
         "target_mean": target_mean,
         "target_std": target_std,
@@ -186,6 +323,7 @@ def main() -> int:
         "amp_dtype": args.amp_dtype if amp_enabled else None,
         "model": model_config,
         "pretrained_load": init_report,
+        "optimizer": optimizer_config,
     }
     args.output_dir.mkdir(parents=True, exist_ok=True)
     write_json(args.output_dir / "config.json", config)
@@ -195,6 +333,12 @@ def main() -> int:
     best_metrics = None
     start_time = time.time()
     for epoch in range(1, args.epochs + 1):
+        if args.pretrained_model_dir is not None and args.freeze_pretrained_backbone_epochs > 0:
+            apply_pretrained_freeze(
+                model,
+                init_report=init_report,
+                freeze_backbone=epoch <= args.freeze_pretrained_backbone_epochs,
+            )
         model.train()
         losses = []
         for batch in train_loader:
@@ -210,7 +354,14 @@ def main() -> int:
             if not torch.isfinite(loss):
                 raise RuntimeError(f"Non-finite D1 loss at epoch {epoch}: {float(loss.detach().cpu())}")
             loss.backward()
+            if args.max_grad_norm is not None:
+                torch.nn.utils.clip_grad_norm_(
+                    [parameter for parameter in model.parameters() if parameter.requires_grad],
+                    args.max_grad_norm,
+                )
             optimizer.step()
+            if scheduler is not None:
+                scheduler.step()
             losses.append(float(loss.detach().cpu()))
 
         train_mse = float(sum(losses) / max(len(losses), 1))
@@ -225,7 +376,14 @@ def main() -> int:
             feature_mean=feature_mean,
             feature_std=feature_std,
         )
-        metrics = {"epoch": epoch, "train_mse": train_mse, "elapsed_sec": time.time() - start_time, **val_metrics}
+        metrics = {
+            "epoch": epoch,
+            "train_mse": train_mse,
+            "elapsed_sec": time.time() - start_time,
+            "lr": optimizer.param_groups[0]["lr"],
+            "lr_groups": [group["lr"] for group in optimizer.param_groups],
+            **val_metrics,
+        }
         history.append(metrics)
         print(metrics)
         save_checkpoint(args.output_dir / "model.pt", model=model, optimizer=optimizer, epoch=epoch, config=config, metrics=metrics)

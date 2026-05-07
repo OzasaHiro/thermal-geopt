@@ -29,6 +29,15 @@ EVAL_POINT_BUDGET="${EVAL_POINT_BUDGET:-4096}"
 MAX_TRAIN_CASES="${MAX_TRAIN_CASES:-0}"
 MAX_VAL_CASES="${MAX_VAL_CASES:-0}"
 DEVICE="${DEVICE:-cuda}"
+SCRATCH_LR="${SCRATCH_LR:-1e-3}"
+PRETRAINED_BACKBONE_LR="${PRETRAINED_BACKBONE_LR:-}"
+PRETRAINED_HEAD_LR="${PRETRAINED_HEAD_LR:-}"
+FREEZE_PRETRAINED_BACKBONE_EPOCHS="${FREEZE_PRETRAINED_BACKBONE_EPOCHS:-0}"
+FINETUNE_SCHEDULER="${FINETUNE_SCHEDULER:-none}"
+FINETUNE_WARMUP_RATIO="${FINETUNE_WARMUP_RATIO:-0.05}"
+FINETUNE_MIN_LR_SCALE="${FINETUNE_MIN_LR_SCALE:-0.01}"
+FINETUNE_PCT_START="${FINETUNE_PCT_START:-0.3}"
+MAX_GRAD_NORM="${MAX_GRAD_NORM:-}"
 SKIP_EXISTING="${SKIP_EXISTING:-1}"
 RUN_PREFIX="${RUN_PREFIX:-d1_r0_v2}"
 
@@ -128,12 +137,31 @@ for SPLIT_SEED in $SPLIT_SEEDS; do
 
         pretrain_dir="$(pretrain_dir_for "$GROUP")"
         pretrained_args=()
+        lr_args=(
+          --lr "$SCRATCH_LR"
+          --scheduler "$FINETUNE_SCHEDULER"
+          --warmup-ratio "$FINETUNE_WARMUP_RATIO"
+          --min-lr-scale "$FINETUNE_MIN_LR_SCALE"
+          --pct-start "$FINETUNE_PCT_START"
+        )
+        if [[ -n "$MAX_GRAD_NORM" ]]; then
+          lr_args+=(--max-grad-norm "$MAX_GRAD_NORM")
+        fi
         if [[ -n "$pretrain_dir" ]]; then
           if [[ ! -e "$pretrain_dir/best_model.pt" ]]; then
             echo "Missing pretrained checkpoint for group ${GROUP}: ${pretrain_dir}/best_model.pt"
             exit 1
           fi
           pretrained_args=(--pretrained-model-dir "$pretrain_dir" --pretrained-checkpoint-file best_model.pt)
+          if [[ -n "$PRETRAINED_BACKBONE_LR" ]]; then
+            lr_args+=(--pretrained-backbone-lr "$PRETRAINED_BACKBONE_LR")
+          fi
+          if [[ -n "$PRETRAINED_HEAD_LR" ]]; then
+            lr_args+=(--pretrained-head-lr "$PRETRAINED_HEAD_LR")
+          fi
+          if [[ "$FREEZE_PRETRAINED_BACKBONE_EPOCHS" != "0" ]]; then
+            lr_args+=(--freeze-pretrained-backbone-epochs "$FREEZE_PRETRAINED_BACKBONE_EPOCHS")
+          fi
         fi
 
         echo "=== ${GROUP} split=${SPLIT_SEED} train_seed=${TRAIN_SEED} train_${N} ==="
@@ -150,6 +178,7 @@ for SPLIT_SEED in $SPLIT_SEEDS; do
           --eval-point-budget "$EVAL_POINT_BUDGET" \
           --max-train-cases "$MAX_TRAIN_CASES" \
           --max-val-cases "$MAX_VAL_CASES" \
+          "${lr_args[@]}" \
           --amp \
           --amp-dtype bfloat16 \
           --device "$DEVICE" \
