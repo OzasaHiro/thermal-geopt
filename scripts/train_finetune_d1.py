@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pilot fine-tuning on D1 solid-conduction proxy cases."""
+"""Fine-tune on D1 solid-conduction NPZ cases."""
 
 from __future__ import annotations
 
@@ -148,7 +148,7 @@ def main() -> int:
     amp_dtype = torch.bfloat16 if args.amp_dtype == "bfloat16" else torch.float16
 
     config = {
-        "task": "d1_proxy_finetune",
+        "task": "d1_finetune",
         "case_manifest": str(args.case_manifest),
         "split_path": str(args.split_path) if args.split_path else None,
         "train_split": args.train_split if args.split_path else "all",

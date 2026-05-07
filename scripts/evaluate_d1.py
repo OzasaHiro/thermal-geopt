@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Evaluate D1 proxy NPZ cases with a Transolver checkpoint or tiny baseline."""
+"""Evaluate D1 NPZ cases with a Transolver checkpoint or tiny baseline."""
 
 from __future__ import annotations
 
@@ -339,12 +339,21 @@ def predict_model(
     return denormalize_temperature(pred_np[:, :1].astype(np.float32), config)
 
 
-def case_metrics(pred: np.ndarray, target: np.ndarray) -> dict[str, float]:
+def case_metrics(pred: np.ndarray, target: np.ndarray, points: np.ndarray) -> dict[str, float]:
     error = pred.astype(np.float64) - target.astype(np.float64)
+    pred_hotspot = int(np.argmax(pred.reshape(-1)))
+    target_hotspot = int(np.argmax(target.reshape(-1)))
+    hotspot_distance = float(
+        np.linalg.norm(points[pred_hotspot].astype(np.float64) - points[target_hotspot].astype(np.float64))
+    )
+    max_temperature_error = max_value_error(pred, target)
     return {
         "relative_l2": relative_l2(pred, target),
         "rmse": float(math.sqrt(np.mean(error * error))),
-        "max_value_error": max_value_error(pred, target),
+        "max_value_error": max_temperature_error,
+        "max_temperature_error": max_temperature_error,
+        "max_temperature_abs_error": abs(max_temperature_error),
+        "hotspot_distance": hotspot_distance,
         "points": int(target.shape[0]),
     }
 
@@ -357,6 +366,8 @@ def summarize(metrics: list[dict[str, float]]) -> dict[str, float]:
         "relative_l2_mean": float(np.mean([item["relative_l2"] for item in metrics])),
         "rmse_mean": float(np.mean([item["rmse"] for item in metrics])),
         "max_value_error_mean": float(np.mean([item["max_value_error"] for item in metrics])),
+        "max_temperature_abs_error_mean": float(np.mean([item["max_temperature_abs_error"] for item in metrics])),
+        "hotspot_distance_mean": float(np.mean([item["hotspot_distance"] for item in metrics])),
     }
 
 
@@ -389,7 +400,7 @@ def main() -> int:
             pred = predict_baseline(conditions, args.baseline)
         else:
             pred = predict_model(model, config, device, points, conditions, fun_dim)
-        metrics = case_metrics(pred, target)
+        metrics = case_metrics(pred, target, points)
         per_case.append({"id": case["id"], "path": case["path"], **metrics})
 
     payload = {

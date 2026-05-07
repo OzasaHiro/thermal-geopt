@@ -155,6 +155,7 @@ Git/GitHub:
 追加で整備済み:
 
 - `scripts/generate_d1_conduction_cases.py`: OpenFOAMなしでD1 downstream配管を確認するsource/sink proxy case生成。物理解ではなくsmoke/proxy用途。
+- `scripts/generate_d1_openfoam_cases.py`: OpenFOAM Foundation v13 `laplacianFoam` でD1 solid-conduction block caseを解き、solver-backed NPZへ変換するM1最小実装。
 - `scripts/build_splits.py`: manifestから決定的なtrain/val/test split JSONを生成。
 - `scripts/inspect_artifacts.py`: `.npz`、`manifest.json`、`.zarr` のshape/dtype/finite check。
 - `scripts/train_pretrain.py`: Thermal diffusion feature/TDFを教師にしたTransolver pilot pretraining。

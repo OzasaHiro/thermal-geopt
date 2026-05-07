@@ -249,7 +249,12 @@ def _record_id(record: dict[str, Any]) -> str:
 
 
 class D1ProxyDataset(Dataset):
-    """D1 source/sink proxy case dataset."""
+    """D1 NPZ case dataset.
+
+    The class name is kept for compatibility with earlier proxy runs, but the
+    loader only requires the common downstream keys used by both proxy and
+    solver-backed D1 cases: ``points``, ``conditions``, and ``temperature``.
+    """
 
     def __init__(
         self,
