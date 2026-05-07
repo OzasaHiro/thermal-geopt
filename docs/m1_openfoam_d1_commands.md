@@ -111,6 +111,26 @@ Evaluate a simple baseline:
 The evaluation JSON reports Relative L2/RMSE, max-temperature error, absolute
 max-temperature error, and hotspot-distance error.
 
+## 4. Scratch Fine-Tune Smoke
+
+After the 50-case pilot has been generated and checked:
+
+```bash
+bash scripts/run_m1_openfoam_downstream_smoke.sh
+```
+
+The default smoke uses 8 train cases, 4 validation cases, 3 epochs, and 1024
+sampled points per case.
+
+For a fuller scratch pilot on the complete 35/7 train/val split:
+
+```bash
+MAX_TRAIN_CASES=0 MAX_VAL_CASES=0 EPOCHS=20 DEVICE=cuda \
+  OUTPUT_DIR=outputs/checkpoints/d1_openfoam_block_scratch_pilot_ep20 \
+  EVAL_JSON=outputs/logs/d1_openfoam_block_scratch_pilot_ep20_test.json \
+  bash scripts/run_m1_openfoam_downstream_smoke.sh
+```
+
 ## Next M1 Expansion
 
 The next implementation step should replace the block-only geometry with

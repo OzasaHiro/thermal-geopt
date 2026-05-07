@@ -201,6 +201,21 @@ OVERWRITE=1 bash scripts/run_m1_openfoam_pilot.sh
 
 このrunnerは内部で `/opt/openfoam13/etc/bashrc` をsourceする。
 
+solver-backed D1 scratch smoke:
+
+```bash
+bash scripts/run_m1_openfoam_downstream_smoke.sh
+```
+
+solver-backed D1 scratch pilot:
+
+```bash
+MAX_TRAIN_CASES=0 MAX_VAL_CASES=0 EPOCHS=20 DEVICE=cuda \
+OUTPUT_DIR=outputs/checkpoints/d1_openfoam_block_scratch_pilot_ep20 \
+EVAL_JSON=outputs/logs/d1_openfoam_block_scratch_pilot_ep20_test.json \
+bash scripts/run_m1_openfoam_downstream_smoke.sh
+```
+
 ## 8. Git管理
 
 生成データは `.gitignore` 対象なのでGitに入れない。コード・設定・軽量Markdownだけをコミットする。
