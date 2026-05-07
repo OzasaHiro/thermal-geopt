@@ -158,6 +158,20 @@ def fmt(value: Any) -> str:
 
 def markdown_report(summary: dict[str, Any]) -> str:
     groups = list(summary["groups"])
+    gate_hits = []
+    best_entry = None
+    for train_size in summary["train_sizes"]:
+        size_key = str(train_size)
+        for group, result in summary["results"][size_key].items():
+            rel_l2 = result.get("relative_l2_mean")
+            if isinstance(rel_l2, (int, float)):
+                entry = (float(rel_l2), train_size, group)
+                best_entry = entry if best_entry is None or entry < best_entry else best_entry
+        if train_size not in (25, 50):
+            continue
+        for key, value in summary["comparisons"][size_key].items():
+            if isinstance(value, (int, float)) and value >= 10.0:
+                gate_hits.append((train_size, key.removesuffix("_vs_scratch_relative_l2_pct"), value))
     lines = [
         "# Label-Scarcity Gate Results",
         "",
@@ -181,6 +195,21 @@ def markdown_report(summary: dict[str, Any]) -> str:
         for key, value in summary["comparisons"][size_key].items():
             group = key.removesuffix("_vs_scratch_relative_l2_pct")
             lines.append(f"| {train_size} | {group} | {fmt(value)} |")
+
+    lines.extend(["", "## Gate Interpretation", ""])
+    if gate_hits:
+        lines.append("Gate status: positive under the predefined 25/50-label rule.")
+        lines.append("")
+        for train_size, group, value in gate_hits:
+            lines.append(f"- `{group}` improves scratch by {value:.2f}% at {train_size} labels.")
+    else:
+        lines.append("Gate status: not positive under the predefined 25/50-label rule.")
+        lines.append("")
+        lines.append("No pretrained group improves scratch by 10% relative L2 at 25 or 50 labels.")
+    if best_entry is not None:
+        best_rel_l2, best_train_size, best_group = best_entry
+        lines.append("")
+        lines.append(f"Best observed test relative L2 is `{best_rel_l2:.6f}` from `{best_group}` at {best_train_size} labels.")
 
     lines.extend(
         [
