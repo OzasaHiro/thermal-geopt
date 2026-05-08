@@ -413,6 +413,39 @@ MODE=all \
 bash scripts/run_m3_openfoam_p2_transfer_gate.sh
 ```
 
+Original GeoPT pretrained modelを対照群に入れる場合。
+これはThermal GeoPTの有効性そのものではなく、元GeoPTの汎用的な幾何・境界・dynamics priorだけで熱伝達D1へどこまで移るかを見るcontrolである。
+元GeoPT checkpointはThermal pretraining用の正規化configを持たないため、`NORMALIZATION_PROTOCOL=downstream` でscratchと同条件比較する。
+
+```bash
+PY=../../.venv/bin/python \
+PRETRAIN_GEOPT_ORIGINAL=../GeoPT/checkpoints \
+PRETRAIN_GEOPT_ORIGINAL_CHECKPOINT=GeoPT_8layers.pt \
+NORMALIZATION_PROTOCOL=downstream \
+RUN_PREFIX=m3_openfoam_p2_original_geopt_downstream_oclr \
+EPOCHS=100 \
+TRAIN_SIZES="10 25 50 100" \
+SPLIT_SEEDS="42 43 44" \
+TRAIN_SEEDS="42" \
+POINT_BUDGET=3072 \
+EVAL_POINT_BUDGET=3072 \
+GATE_GROUPS="scratch geopt_original" \
+FINETUNE_SCHEDULER=onecycle \
+PRETRAINED_BACKBONE_LR=3e-4 \
+PRETRAINED_HEAD_LR=1e-3 \
+FREEZE_PRETRAINED_BACKBONE_EPOCHS=5 \
+MAX_GRAD_NORM=1.0 \
+MODE=all \
+bash scripts/run_m3_openfoam_p2_transfer_gate.sh
+```
+
+解釈:
+
+- `geopt_original` がscratchより良い: GeoPTの汎用dynamics-lifted priorが熱伝達にも移る可能性がある。
+- Thermal diffusion-liftedが `geopt_original` より良い: 熱拡散向けpretrainingに追加価値がある。
+- `geopt_original` がThermal diffusion-liftedより良い: Thermal側pretextや正規化、fine tuning protocolを再検討する。
+- 両方scratch以下: transfer設定か下流task設計が悪い可能性を優先して疑う。
+
 詳細は `docs/r3_diffusion_lifted_pretraining_plan_2026-05-08.md` を参照。
 
 ## 7. M1 solver-backed D1 OpenFOAM pilot

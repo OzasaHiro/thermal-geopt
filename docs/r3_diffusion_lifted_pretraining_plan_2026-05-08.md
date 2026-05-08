@@ -180,6 +180,32 @@ PRETRAIN_DIFFUSION=outputs/checkpoints/pretrain_r3_diffusion_lifted_p2_norm_val_
 NORMALIZATION_CONFIG=outputs/checkpoints/pretrain_r3_diffusion_lifted_p2_norm_val_ep100_wcos/config.json
 ```
 
+Original GeoPT pretrained model control:
+
+このcontrolは、Thermal GeoPT固有のpretraining効果と、元GeoPTの汎用的な幾何・境界・dynamics priorを切り分けるために使う。元GeoPT checkpointはThermal側のpretraining normalization configを持たないため、scratchと同じdownstream normalizationで比較する。
+
+```bash
+PY=../../.venv/bin/python \
+PRETRAIN_GEOPT_ORIGINAL=../GeoPT/checkpoints \
+PRETRAIN_GEOPT_ORIGINAL_CHECKPOINT=GeoPT_8layers.pt \
+NORMALIZATION_PROTOCOL=downstream \
+RUN_PREFIX=m3_openfoam_p2_original_geopt_downstream_oclr \
+EPOCHS=100 \
+TRAIN_SIZES="10 25 50 100" \
+SPLIT_SEEDS="42 43 44" \
+TRAIN_SEEDS="42" \
+POINT_BUDGET=3072 \
+EVAL_POINT_BUDGET=3072 \
+GATE_GROUPS="scratch geopt_original" \
+FINETUNE_SCHEDULER=onecycle \
+PRETRAINED_BACKBONE_LR=3e-4 \
+PRETRAINED_HEAD_LR=1e-3 \
+FREEZE_PRETRAINED_BACKBONE_EPOCHS=5 \
+MAX_GRAD_NORM=1.0 \
+MODE=all \
+bash scripts/run_m3_openfoam_p2_transfer_gate.sh
+```
+
 ## Interpretation
 
 Positive signal:
@@ -194,3 +220,10 @@ No-Go for R3a:
 - M3で全train sizeでscratchより悪い。
 
 No-Goの場合でも、Thermal GeoPT自体の棄却ではない。R3b trajectory TDFでも弱い場合に、複数walk集約の到達確率・期待到達時刻へ進む。
+
+Original GeoPT controlの読み方:
+
+- `geopt_original` がscratchより良い: GeoPTの汎用priorが熱伝達にも効く可能性がある。
+- Thermal diffusion-liftedが `geopt_original` より良い: Thermal向けdiffusion pretrainingに追加価値がある。
+- `geopt_original` がThermal diffusion-liftedより良い: Thermal側pretext、正規化、fine tuning protocolを優先的に再点検する。
+- どちらもscratch以下: transfer実装、正規化、またはD1 task設計の問題を疑う。

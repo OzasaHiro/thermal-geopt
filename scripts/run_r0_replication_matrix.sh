@@ -20,6 +20,8 @@ PRETRAIN_STATIC="${PRETRAIN_STATIC:-outputs/checkpoints/pretrain_gate_static_tdf
 PRETRAIN_NO_BOUNDARY="${PRETRAIN_NO_BOUNDARY:-outputs/checkpoints/pretrain_gate_no_boundary_field_ep2}"
 PRETRAIN_DYNAMICS="${PRETRAIN_DYNAMICS:-outputs/checkpoints/pretrain_r1_dynamics_lifted_no_boundary_ep2}"
 PRETRAIN_DIFFUSION="${PRETRAIN_DIFFUSION:-$PRETRAIN_DYNAMICS}"
+PRETRAIN_GEOPT_ORIGINAL="${PRETRAIN_GEOPT_ORIGINAL:-../GeoPT/checkpoints}"
+PRETRAIN_GEOPT_ORIGINAL_CHECKPOINT="${PRETRAIN_GEOPT_ORIGINAL_CHECKPOINT:-GeoPT_8layers.pt}"
 GATE_GROUPS="${GATE_GROUPS:-scratch no_boundary_field}"
 TRAIN_SIZES="${TRAIN_SIZES:-50 75 100 125}"
 SPLIT_SEEDS="${SPLIT_SEEDS:-42 43 44 45 46}"
@@ -41,6 +43,8 @@ FINETUNE_PCT_START="${FINETUNE_PCT_START:-0.3}"
 MAX_GRAD_NORM="${MAX_GRAD_NORM:-}"
 NORMALIZATION_PROTOCOL="${NORMALIZATION_PROTOCOL:-legacy_downstream}"
 NORMALIZATION_CONFIG="${NORMALIZATION_CONFIG:-}"
+GEOPT_ORIGINAL_NORMALIZATION_PROTOCOL="${GEOPT_ORIGINAL_NORMALIZATION_PROTOCOL:-downstream}"
+GEOPT_ORIGINAL_NORMALIZATION_CONFIG="${GEOPT_ORIGINAL_NORMALIZATION_CONFIG:-}"
 SKIP_EXISTING="${SKIP_EXISTING:-1}"
 RUN_PREFIX="${RUN_PREFIX:-d1_r0_v2}"
 
@@ -110,6 +114,20 @@ pretrain_dir_for() {
     dynamics_lifted) echo "$PRETRAIN_DYNAMICS" ;;
     dynamics_lifted_no_boundary) echo "$PRETRAIN_DYNAMICS" ;;
     diffusion_lifted) echo "$PRETRAIN_DIFFUSION" ;;
+    geopt_original) echo "$PRETRAIN_GEOPT_ORIGINAL" ;;
+    scratch) echo "" ;;
+    *)
+      echo "Unknown group: $group" >&2
+      return 1
+      ;;
+  esac
+}
+
+pretrain_checkpoint_for() {
+  local group="$1"
+  case "$group" in
+    full|static_tdf_only|no_boundary_field|dynamics_lifted|dynamics_lifted_no_boundary|diffusion_lifted) echo "best_model.pt" ;;
+    geopt_original) echo "$PRETRAIN_GEOPT_ORIGINAL_CHECKPOINT" ;;
     scratch) echo "" ;;
     *)
       echo "Unknown group: $group" >&2
@@ -140,6 +158,13 @@ for SPLIT_SEED in $SPLIT_SEEDS; do
         fi
 
         pretrain_dir="$(pretrain_dir_for "$GROUP")"
+        pretrain_checkpoint="$(pretrain_checkpoint_for "$GROUP")"
+        group_normalization_protocol="$NORMALIZATION_PROTOCOL"
+        group_normalization_config="$NORMALIZATION_CONFIG"
+        if [[ "$GROUP" == "geopt_original" ]]; then
+          group_normalization_protocol="$GEOPT_ORIGINAL_NORMALIZATION_PROTOCOL"
+          group_normalization_config="$GEOPT_ORIGINAL_NORMALIZATION_CONFIG"
+        fi
         pretrained_args=()
         lr_args=(
           --lr "$SCRATCH_LR"
@@ -151,16 +176,20 @@ for SPLIT_SEED in $SPLIT_SEEDS; do
         if [[ -n "$MAX_GRAD_NORM" ]]; then
           lr_args+=(--max-grad-norm "$MAX_GRAD_NORM")
         fi
-        lr_args+=(--normalization-protocol "$NORMALIZATION_PROTOCOL")
-        if [[ -n "$NORMALIZATION_CONFIG" ]]; then
-          lr_args+=(--normalization-config "$NORMALIZATION_CONFIG")
+        lr_args+=(--normalization-protocol "$group_normalization_protocol")
+        if [[ -n "$group_normalization_config" ]]; then
+          lr_args+=(--normalization-config "$group_normalization_config")
         fi
         if [[ -n "$pretrain_dir" ]]; then
-          if [[ ! -e "$pretrain_dir/best_model.pt" ]]; then
-            echo "Missing pretrained checkpoint for group ${GROUP}: ${pretrain_dir}/best_model.pt"
+          if [[ -z "$pretrain_checkpoint" ]]; then
+            echo "Missing checkpoint filename for group ${GROUP}"
             exit 1
           fi
-          pretrained_args=(--pretrained-model-dir "$pretrain_dir" --pretrained-checkpoint-file best_model.pt)
+          if [[ ! -e "$pretrain_dir/$pretrain_checkpoint" ]]; then
+            echo "Missing pretrained checkpoint for group ${GROUP}: ${pretrain_dir}/${pretrain_checkpoint}"
+            exit 1
+          fi
+          pretrained_args=(--pretrained-model-dir "$pretrain_dir" --pretrained-checkpoint-file "$pretrain_checkpoint")
           if [[ -n "$PRETRAINED_BACKBONE_LR" ]]; then
             lr_args+=(--pretrained-backbone-lr "$PRETRAINED_BACKBONE_LR")
           fi
@@ -170,7 +199,11 @@ for SPLIT_SEED in $SPLIT_SEEDS; do
           if [[ "$FREEZE_PRETRAINED_BACKBONE_EPOCHS" != "0" ]]; then
             lr_args+=(--freeze-pretrained-backbone-epochs "$FREEZE_PRETRAINED_BACKBONE_EPOCHS")
           fi
-          if [[ "$NORMALIZATION_PROTOCOL" == "pretrained" && -z "$NORMALIZATION_CONFIG" ]]; then
+          if [[ "$group_normalization_protocol" == "pretrained" && -z "$group_normalization_config" ]]; then
+            if [[ ! -e "$pretrain_dir/config.json" ]]; then
+              echo "Normalization protocol 'pretrained' requested for group ${GROUP}, but ${pretrain_dir}/config.json is missing."
+              exit 1
+            fi
             lr_args+=(--normalization-config "$pretrain_dir/config.json")
           fi
         fi
