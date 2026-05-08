@@ -6,6 +6,8 @@ Date: 2026-05-08
 
 R3は、D1固定温度タスクに寄せた複雑なsource/sink温度代理ターゲットではなく、GeoPTの本質に近いシンプルなdiffusion-lifted pretrainingを本命にする。
 
+2026-05-08追記: 追加の理論検討により、元GeoPTに最も忠実な候補はBrownian diffusionではなく、solver-freeな固定ベクトル場をdynamics promptとして与える `geopt_transport_lifted` であると整理した。R3は熱拡散らしさを持つ対照群として残し、GeoPT本筋の次候補は `docs/r4_geopt_transport_pretraining_plan_2026-05-08.md` に分離する。
+
 採用する最小ターゲットは次の通り。
 
 - TDF auxiliary: VDF, distance, diffusion time, heat-kernel proximity, resistance distance, normal, source/sink proximity

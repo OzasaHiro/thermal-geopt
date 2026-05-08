@@ -19,6 +19,7 @@ if str(REPO_ROOT) not in sys.path:
 from thermal_geopt.boundary_fields import nearest_boundary_field_values, sample_rbf_boundary_field
 from thermal_geopt.brownian import BrownianConfig, simulate_brownian_walk
 from thermal_geopt.tdf import ThermalFeatureConfig, thermal_diffusion_features
+from thermal_geopt.transport import TransportConfig, simulate_vector_transport
 
 
 def sample_query_points(
@@ -107,6 +108,27 @@ def parse_args() -> argparse.Namespace:
         help="How to choose --max-shapes from the processed mesh list. Use balanced for multi-family pretraining.",
     )
     parser.add_argument("--steps", type=int, default=2)
+    parser.add_argument(
+        "--trajectory-mode",
+        choices=["brownian", "geopt_transport"],
+        default="brownian",
+        help=(
+            "brownian: stochastic diffusion walk used by earlier Thermal experiments. "
+            "geopt_transport: GeoPT-style fixed synthetic direction + step-length prompt."
+        ),
+    )
+    parser.add_argument(
+        "--transport-min-step",
+        type=float,
+        default=0.0,
+        help="Minimum per-point step length for --trajectory-mode geopt_transport.",
+    )
+    parser.add_argument(
+        "--transport-max-step",
+        type=float,
+        default=0.12,
+        help="Maximum per-point step length for --trajectory-mode geopt_transport.",
+    )
     parser.add_argument(
         "--save-trajectory-tdf",
         action="store_true",
@@ -227,18 +249,40 @@ def main() -> int:
                     "nearest_boundary_distance",
                 ]
 
-            trajectory = simulate_brownian_walk(
-                query_points,
-                boundary_points,
-                boundary_normals,
-                config=BrownianConfig(
-                    steps=args.steps,
-                    dt=float(rng.uniform(0.01, 0.05)),
-                    alpha=alpha,
-                    boundary_mode="partial_absorbing",
-                    seed=args.seed + mesh_index * 1000 + episode_index,
-                ),
-            )
+            trajectory_seed = args.seed + mesh_index * 1000 + episode_index
+            if args.trajectory_mode == "brownian":
+                trajectory = simulate_brownian_walk(
+                    query_points,
+                    boundary_points,
+                    boundary_normals,
+                    config=BrownianConfig(
+                        steps=args.steps,
+                        dt=float(rng.uniform(0.01, 0.05)),
+                        alpha=alpha,
+                        boundary_mode="partial_absorbing",
+                        seed=trajectory_seed,
+                    ),
+                )
+            else:
+                trajectory = simulate_vector_transport(
+                    query_points,
+                    boundary_points,
+                    boundary_normals,
+                    config=TransportConfig(
+                        steps=args.steps,
+                        min_step=args.transport_min_step,
+                        max_step=args.transport_max_step,
+                        seed=trajectory_seed,
+                    ),
+                )
+                cond = np.concatenate([cond, trajectory.condition], axis=1)
+                condition_names = [
+                    *condition_names,
+                    "transport_dir_x",
+                    "transport_dir_y",
+                    "transport_dir_z",
+                    "transport_step_length",
+                ]
             if args.save_trajectory_tdf:
                 selected_indices = trajectory_feature_indices(names, feature_set=args.trajectory_tdf_feature_set)
                 trajectory_tdf_feature_names = [names[index] for index in selected_indices]
@@ -300,6 +344,7 @@ def main() -> int:
             "feature_names": feature_names,
             "condition_names": condition_names,
             "condition_schema": args.condition_schema,
+            "trajectory_mode": args.trajectory_mode,
             "trajectory_tdf_feature_names": trajectory_tdf_feature_names or [],
             "trajectory_tdf_feature_set": args.trajectory_tdf_feature_set if args.save_trajectory_tdf else None,
             "trajectory_tdf_steps": args.steps if args.save_trajectory_tdf else 0,
@@ -316,6 +361,7 @@ def main() -> int:
                 "feature_dim": len(feature_names or []),
                 "condition_schema": args.condition_schema,
                 "condition_dim": len(condition_names),
+                "trajectory_mode": args.trajectory_mode,
             }
         )
         print(shard_records[-1])
@@ -330,6 +376,9 @@ def main() -> int:
         "selection": args.selection,
         "condition_schema": args.condition_schema,
         "steps": args.steps,
+        "trajectory_mode": args.trajectory_mode,
+        "transport_min_step": args.transport_min_step if args.trajectory_mode == "geopt_transport" else None,
+        "transport_max_step": args.transport_max_step if args.trajectory_mode == "geopt_transport" else None,
         "save_trajectory_tdf": args.save_trajectory_tdf,
         "trajectory_tdf_feature_set": args.trajectory_tdf_feature_set if args.save_trajectory_tdf else None,
         "seed": args.seed,

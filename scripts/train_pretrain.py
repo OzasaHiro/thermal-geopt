@@ -43,7 +43,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--best-metric", choices=["auto", "train_loss", "val_loss"], default="auto")
     parser.add_argument(
         "--pretext-ablation",
-        choices=["full", "no_boundary_field", "static_tdf_only", "dynamics_lifted", "diffusion_lifted"],
+        choices=[
+            "full",
+            "no_boundary_field",
+            "static_tdf_only",
+            "dynamics_lifted",
+            "diffusion_lifted",
+            "geopt_transport_lifted",
+        ],
         default="full",
         help="Select the pretraining target/prompt ablation without regenerating Zarr shards.",
     )

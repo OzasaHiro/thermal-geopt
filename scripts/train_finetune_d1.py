@@ -61,6 +61,15 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         help="Config JSON containing pretraining normalization stats. Defaults to pretrained-model-dir/config.json for protocol=pretrained.",
     )
+    parser.add_argument(
+        "--condition-augmentation",
+        choices=["none", "thermal_transport"],
+        default="none",
+        help=(
+            "Append solver-free downstream dynamics prompts. thermal_transport adds a GeoPT-style "
+            "heat-flow direction and step-length condition."
+        ),
+    )
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--point-budget", type=int, default=2048)
@@ -376,6 +385,7 @@ def main() -> int:
         point_budget=args.point_budget,
         max_cases=args.max_train_cases,
         seed=args.seed,
+        condition_augmentation=args.condition_augmentation,
     )
     val_dataset = D1ProxyDataset(
         args.case_manifest,
@@ -384,6 +394,7 @@ def main() -> int:
         point_budget=args.eval_point_budget,
         max_cases=args.max_val_cases,
         seed=args.seed + 10_000,
+        condition_augmentation=args.condition_augmentation,
     )
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=0)
     val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=0)
@@ -446,6 +457,7 @@ def main() -> int:
         "max_grad_norm": args.max_grad_norm,
         "normalization_protocol": args.normalization_protocol,
         "normalization_config": str(args.normalization_config) if args.normalization_config else None,
+        "condition_augmentation": args.condition_augmentation,
         "seed": args.seed,
         "target_mean": float(normalization["target"]["mean"][0]),  # type: ignore[index]
         "target_std": float(normalization["target"]["std"][0]),  # type: ignore[index]

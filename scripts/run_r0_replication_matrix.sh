@@ -20,6 +20,7 @@ PRETRAIN_STATIC="${PRETRAIN_STATIC:-outputs/checkpoints/pretrain_gate_static_tdf
 PRETRAIN_NO_BOUNDARY="${PRETRAIN_NO_BOUNDARY:-outputs/checkpoints/pretrain_gate_no_boundary_field_ep2}"
 PRETRAIN_DYNAMICS="${PRETRAIN_DYNAMICS:-outputs/checkpoints/pretrain_r1_dynamics_lifted_no_boundary_ep2}"
 PRETRAIN_DIFFUSION="${PRETRAIN_DIFFUSION:-$PRETRAIN_DYNAMICS}"
+PRETRAIN_GEOPT_TRANSPORT="${PRETRAIN_GEOPT_TRANSPORT:-$PRETRAIN_DIFFUSION}"
 PRETRAIN_GEOPT_ORIGINAL="${PRETRAIN_GEOPT_ORIGINAL:-../GeoPT/checkpoints}"
 PRETRAIN_GEOPT_ORIGINAL_CHECKPOINT="${PRETRAIN_GEOPT_ORIGINAL_CHECKPOINT:-GeoPT_8layers.pt}"
 GATE_GROUPS="${GATE_GROUPS:-scratch no_boundary_field}"
@@ -43,6 +44,7 @@ FINETUNE_PCT_START="${FINETUNE_PCT_START:-0.3}"
 MAX_GRAD_NORM="${MAX_GRAD_NORM:-}"
 NORMALIZATION_PROTOCOL="${NORMALIZATION_PROTOCOL:-legacy_downstream}"
 NORMALIZATION_CONFIG="${NORMALIZATION_CONFIG:-}"
+CONDITION_AUGMENTATION="${CONDITION_AUGMENTATION:-none}"
 GEOPT_ORIGINAL_NORMALIZATION_PROTOCOL="${GEOPT_ORIGINAL_NORMALIZATION_PROTOCOL:-downstream}"
 GEOPT_ORIGINAL_NORMALIZATION_CONFIG="${GEOPT_ORIGINAL_NORMALIZATION_CONFIG:-}"
 SKIP_EXISTING="${SKIP_EXISTING:-1}"
@@ -114,6 +116,7 @@ pretrain_dir_for() {
     dynamics_lifted) echo "$PRETRAIN_DYNAMICS" ;;
     dynamics_lifted_no_boundary) echo "$PRETRAIN_DYNAMICS" ;;
     diffusion_lifted) echo "$PRETRAIN_DIFFUSION" ;;
+    geopt_transport_lifted) echo "$PRETRAIN_GEOPT_TRANSPORT" ;;
     geopt_original) echo "$PRETRAIN_GEOPT_ORIGINAL" ;;
     scratch) echo "" ;;
     *)
@@ -126,7 +129,7 @@ pretrain_dir_for() {
 pretrain_checkpoint_for() {
   local group="$1"
   case "$group" in
-    full|static_tdf_only|no_boundary_field|dynamics_lifted|dynamics_lifted_no_boundary|diffusion_lifted) echo "best_model.pt" ;;
+    full|static_tdf_only|no_boundary_field|dynamics_lifted|dynamics_lifted_no_boundary|diffusion_lifted|geopt_transport_lifted) echo "best_model.pt" ;;
     geopt_original) echo "$PRETRAIN_GEOPT_ORIGINAL_CHECKPOINT" ;;
     scratch) echo "" ;;
     *)
@@ -222,6 +225,7 @@ for SPLIT_SEED in $SPLIT_SEEDS; do
           --eval-point-budget "$EVAL_POINT_BUDGET" \
           --max-train-cases "$MAX_TRAIN_CASES" \
           --max-val-cases "$MAX_VAL_CASES" \
+          --condition-augmentation "$CONDITION_AUGMENTATION" \
           "${lr_args[@]}" \
           --amp \
           --amp-dtype bfloat16 \

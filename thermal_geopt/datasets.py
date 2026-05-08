@@ -77,7 +77,14 @@ PRETRAIN_DIFFUSION_LIFTED_FEATURE_NAMES = [
     "boundary_survival",
     "hit_step_norm",
 ]
-PRETRAIN_ABLATIONS = ("full", "no_boundary_field", "static_tdf_only", "dynamics_lifted", "diffusion_lifted")
+PRETRAIN_ABLATIONS = (
+    "full",
+    "no_boundary_field",
+    "static_tdf_only",
+    "dynamics_lifted",
+    "diffusion_lifted",
+    "geopt_transport_lifted",
+)
 PRETRAIN_CONDITION_MODES = ("full", "zero_boundary_field", "zero_all")
 
 
@@ -129,6 +136,7 @@ class PretrainZarrDataset(Dataset):
                 "static_tdf_only": "zero_all",
                 "dynamics_lifted": "full",
                 "diffusion_lifted": "full",
+                "geopt_transport_lifted": "full",
             }[ablation]
         if condition_mode not in PRETRAIN_CONDITION_MODES:
             raise ValueError(
@@ -152,6 +160,7 @@ class PretrainZarrDataset(Dataset):
         meta = _read_shard_meta(refs[0].shard_path)
         self.feature_names = list(meta.get("feature_names") or DEFAULT_PRETRAIN_FEATURE_NAMES)
         self.condition_names = list(meta.get("condition_names") or DEFAULT_PRETRAIN_CONDITION_NAMES)
+        self.trajectory_mode = str(meta.get("trajectory_mode") or self.manifest.get("trajectory_mode") or "brownian")
         self.trajectory_tdf_feature_names = list(meta.get("trajectory_tdf_feature_names") or [])
         self.trajectory_tdf_steps = int(meta.get("trajectory_tdf_steps") or 0)
         if validate_schema:
@@ -159,23 +168,34 @@ class PretrainZarrDataset(Dataset):
                 shard_meta = _read_shard_meta(shard_path)
                 feature_names = list(shard_meta.get("feature_names") or DEFAULT_PRETRAIN_FEATURE_NAMES)
                 condition_names = list(shard_meta.get("condition_names") or DEFAULT_PRETRAIN_CONDITION_NAMES)
+                trajectory_mode = str(
+                    shard_meta.get("trajectory_mode") or self.manifest.get("trajectory_mode") or "brownian"
+                )
                 trajectory_tdf_feature_names = list(shard_meta.get("trajectory_tdf_feature_names") or [])
                 trajectory_tdf_steps = int(shard_meta.get("trajectory_tdf_steps") or 0)
                 if (
                     feature_names != self.feature_names
                     or condition_names != self.condition_names
+                    or trajectory_mode != self.trajectory_mode
                     or trajectory_tdf_feature_names != self.trajectory_tdf_feature_names
                     or trajectory_tdf_steps != self.trajectory_tdf_steps
                 ):
                     raise ValueError(
                         "Pretraining shard schema mismatch: "
                         f"{shard_path} has feature_names={feature_names}, condition_names={condition_names}, "
+                        f"trajectory_mode={trajectory_mode}, "
                         f"trajectory_tdf_feature_names={trajectory_tdf_feature_names}, "
                         f"trajectory_tdf_steps={trajectory_tdf_steps}; "
                         f"expected feature_names={self.feature_names}, condition_names={self.condition_names}, "
+                        f"trajectory_mode={self.trajectory_mode}, "
                         f"trajectory_tdf_feature_names={self.trajectory_tdf_feature_names}, "
                         f"trajectory_tdf_steps={self.trajectory_tdf_steps}"
                     )
+        if ablation == "geopt_transport_lifted" and self.trajectory_mode != "geopt_transport":
+            raise ValueError(
+                "geopt_transport_lifted requires shards generated with --trajectory-mode geopt_transport; "
+                f"got trajectory_mode={self.trajectory_mode!r}."
+            )
         target_names = self.feature_names if ablation != "static_tdf_only" else STATIC_TDF_FEATURE_NAMES
         self.target_indices = _indices_for_names(self.feature_names, target_names)
         self.target_names = [self.feature_names[index] for index in self.target_indices]
@@ -191,7 +211,7 @@ class PretrainZarrDataset(Dataset):
                     "hit_step_norm": (start + 7, start + 8),
                 }
             )
-        elif ablation == "diffusion_lifted":
+        elif ablation in {"diffusion_lifted", "geopt_transport_lifted"}:
             start = len(self.target_names)
             self.target_names = [*self.target_names, *PRETRAIN_DIFFUSION_LIFTED_FEATURE_NAMES]
             self.target_slices.update(
@@ -210,6 +230,11 @@ class PretrainZarrDataset(Dataset):
                 ]
                 self.target_names = [*self.target_names, *trajectory_names]
                 self.target_slices["trajectory_tdf"] = (traj_start, traj_start + len(trajectory_names))
+            elif ablation == "geopt_transport_lifted":
+                raise ValueError(
+                    "geopt_transport_lifted requires trajectory_tdf targets. "
+                    "Regenerate pretraining shards with --trajectory-mode geopt_transport --save-trajectory-tdf."
+                )
 
     @staticmethod
     def _dynamics_targets(group: Any, episode: int, ids: np.ndarray) -> np.ndarray:
@@ -275,7 +300,7 @@ class PretrainZarrDataset(Dataset):
         if self.ablation == "dynamics_lifted":
             dynamics = self._dynamics_targets(group, episode, ids)
             y = np.concatenate([y, dynamics], axis=1)
-        elif self.ablation == "diffusion_lifted":
+        elif self.ablation in {"diffusion_lifted", "geopt_transport_lifted"}:
             diffusion = self._diffusion_targets(group, episode, ids)
             y = np.concatenate([y, diffusion], axis=1)
             if self.trajectory_tdf_feature_names:
@@ -331,11 +356,15 @@ class D1ProxyDataset(Dataset):
         point_budget: int = 0,
         max_cases: int = 0,
         seed: int = 42,
+        condition_augmentation: str = "none",
     ) -> None:
         self.manifest_path = manifest_path
         self.manifest = read_json(manifest_path)
         self.point_budget = point_budget
         self.seed = seed
+        if condition_augmentation not in {"none", "thermal_transport"}:
+            raise ValueError("condition_augmentation must be one of: none, thermal_transport")
+        self.condition_augmentation = condition_augmentation
         allowed: set[str] | None = None
         if split_path is not None and split != "all":
             split_payload = read_json(split_path)
@@ -358,6 +387,40 @@ class D1ProxyDataset(Dataset):
             raise ValueError(f"No D1 cases found for split={split} in {manifest_path}")
         self.refs = refs
 
+    @staticmethod
+    def _thermal_transport_prompt(data: Any, *, points: np.ndarray, conditions: np.ndarray) -> np.ndarray:
+        if "source_center" in data and "sink_center" in data:
+            source = np.asarray(data["source_center"], dtype=np.float32).reshape(3)
+            sink = np.asarray(data["sink_center"], dtype=np.float32).reshape(3)
+            direction = sink - source
+        elif "case_params_json" in data:
+            direction = np.asarray([0.0, 0.0, 1.0], dtype=np.float32)
+        else:
+            direction = np.asarray([0.0, 0.0, 1.0], dtype=np.float32)
+        norm = float(np.linalg.norm(direction))
+        if norm <= 1e-8:
+            direction = np.asarray([0.0, 0.0, 1.0], dtype=np.float32)
+        else:
+            direction = (direction / norm).astype(np.float32)
+
+        if conditions.shape[1] >= 3:
+            conductivity = float(np.maximum(conditions[0, 0], 1e-6))
+            source_temperature = float(conditions[0, 1])
+            sink_temperature = float(conditions[0, 2])
+            delta = max(source_temperature - sink_temperature, 0.0)
+            conductivity_scale = np.log1p(conductivity) / np.log1p(25.0)
+            step_length = 0.12 * float(np.clip((delta / 100.0) * conductivity_scale, 0.1, 1.5))
+        else:
+            step_length = 0.12
+        prompt = np.concatenate(
+            [
+                np.broadcast_to(direction.reshape(1, 3), (points.shape[0], 3)),
+                np.full((points.shape[0], 1), step_length, dtype=np.float32),
+            ],
+            axis=1,
+        )
+        return prompt.astype(np.float32)
+
     def __len__(self) -> int:
         return len(self.refs)
 
@@ -367,6 +430,9 @@ class D1ProxyDataset(Dataset):
             x = np.asarray(data["points"], dtype=np.float32)
             fx = np.asarray(data["conditions"], dtype=np.float32)
             y = np.asarray(data["temperature"], dtype=np.float32)
+            if self.condition_augmentation == "thermal_transport":
+                prompt = self._thermal_transport_prompt(data, points=x, conditions=fx)
+                fx = np.concatenate([fx, prompt], axis=1)
         ids = sample_indices(x.shape[0], self.point_budget, seed=self.seed + index)
         return {
             "case_id": ref.case_id,

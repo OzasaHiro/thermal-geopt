@@ -42,7 +42,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--ablation",
         action="append",
-        choices=["full", "no_boundary_field", "static_tdf_only", "dynamics_lifted", "diffusion_lifted"],
+        choices=[
+            "full",
+            "no_boundary_field",
+            "static_tdf_only",
+            "dynamics_lifted",
+            "diffusion_lifted",
+            "geopt_transport_lifted",
+        ],
         default=None,
         help="Dataset ablation to instantiate. Repeatable. Defaults to dynamics_lifted plus key ablations.",
     )
@@ -189,6 +196,7 @@ def inspect_shard(shard_path: Path, *, sample_points_check: int) -> dict[str, An
         "trajectory_steps_plus_one": int(traj_shape[2]),
         "trajectory_tdf_shape": trajectory_tdf_shape,
         "condition_schema": meta.get("condition_schema"),
+        "trajectory_mode": meta.get("trajectory_mode"),
         "condition_names": meta.get("condition_names"),
         "feature_names": meta.get("feature_names"),
         "trajectory_tdf_feature_names": meta.get("trajectory_tdf_feature_names"),
@@ -241,6 +249,7 @@ def main() -> int:
         schema = {
             "condition_schema": report.get("condition_schema"),
             "condition_names": report.get("condition_names"),
+            "trajectory_mode": report.get("trajectory_mode"),
             "feature_names": report.get("feature_names"),
             "condition_dim": report.get("condition_dim"),
             "feature_dim": report.get("feature_dim"),
@@ -275,6 +284,7 @@ def main() -> int:
     output = {
         "manifest": str(args.manifest),
         "condition_schema": manifest.get("condition_schema"),
+        "trajectory_mode": manifest.get("trajectory_mode"),
         "shards": shard_count,
         "total_episodes": episode_count,
         "points_per_episode": points_per_episode,

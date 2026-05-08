@@ -25,6 +25,7 @@ from thermal_geopt.metrics import (
     normalized_rmse_range,
     relative_l2,
 )
+from thermal_geopt.datasets import D1ProxyDataset
 
 ITEM_LIST_KEYS = ("records", "cases", "samples", "items", "shards")
 ID_KEYS = ("sample", "case", "case_id", "id", "name")
@@ -294,7 +295,12 @@ def budget_indices(count: int, point_budget: int | None) -> np.ndarray:
     return np.linspace(0, count - 1, point_budget, dtype=np.int64)
 
 
-def load_case(path: Path, point_budget: int | None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def load_case(
+    path: Path,
+    point_budget: int | None,
+    *,
+    condition_augmentation: str = "none",
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     if not path.exists():
         raise SystemExit(f"Case NPZ not found: {path}")
     with np.load(path) as data:
@@ -304,6 +310,11 @@ def load_case(path: Path, point_budget: int | None) -> tuple[np.ndarray, np.ndar
         points = np.asarray(data["points"], dtype=np.float32)
         conditions = np.asarray(data["conditions"], dtype=np.float32)
         temperature = np.asarray(data["temperature"], dtype=np.float32)
+        if condition_augmentation == "thermal_transport":
+            prompt = D1ProxyDataset._thermal_transport_prompt(data, points=points, conditions=conditions)
+            conditions = np.concatenate([conditions, prompt], axis=1)
+        elif condition_augmentation != "none":
+            raise SystemExit(f"Unsupported condition_augmentation={condition_augmentation!r}")
 
     if points.ndim != 2 or points.shape[1] != 3:
         raise SystemExit(f"{path} has invalid points shape {points.shape}; expected (N, 3).")
@@ -417,10 +428,15 @@ def main() -> int:
         device = resolve_device(args.device)
         model, config, fun_dim, out_dim = load_model(args.model_dir, args.checkpoint_file, device, args.geopt_vendor)
         mode = "model"
+    condition_augmentation = str(config.get("condition_augmentation", "none")) if model is not None else "none"
 
     per_case = []
     for case in cases:
-        points, conditions, target = load_case(Path(case["path"]), args.point_budget)
+        points, conditions, target = load_case(
+            Path(case["path"]),
+            args.point_budget,
+            condition_augmentation=condition_augmentation,
+        )
         if model is None:
             pred = predict_baseline(conditions, args.baseline)
         else:
@@ -442,6 +458,7 @@ def main() -> int:
         "total_points": sum(int(item["points"]) for item in per_case),
         "fun_dim": fun_dim if model is not None else None,
         "out_dim": out_dim if model is not None else None,
+        "condition_augmentation": condition_augmentation if model is not None else None,
         "temperature": summarize(per_case),
         "case_metrics": per_case,
     }
