@@ -79,6 +79,20 @@ def select_processed_paths(processed_paths: list[Path], *, max_shapes: int, sele
     return selected
 
 
+def trajectory_feature_indices(feature_names: list[str], *, feature_set: str) -> list[int]:
+    if feature_set == "all":
+        selected = feature_names
+    elif feature_set == "vdf_distance":
+        selected = ["vdf_x", "vdf_y", "vdf_z", "distance"]
+    else:
+        raise ValueError(f"Unknown trajectory feature set: {feature_set}")
+    lookup = {name: index for index, name in enumerate(feature_names)}
+    missing = [name for name in selected if name not in lookup]
+    if missing:
+        raise ValueError(f"Cannot save trajectory TDF features; missing feature names: {missing}")
+    return [lookup[name] for name in selected]
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--processed-dir", type=Path, default=Path("data/meshes_processed/cadquery"))
@@ -93,6 +107,17 @@ def parse_args() -> argparse.Namespace:
         help="How to choose --max-shapes from the processed mesh list. Use balanced for multi-family pretraining.",
     )
     parser.add_argument("--steps", type=int, default=2)
+    parser.add_argument(
+        "--save-trajectory-tdf",
+        action="store_true",
+        help="Save TDF/VDF features evaluated along Brownian trajectory positions for GeoPT-like trajectory supervision.",
+    )
+    parser.add_argument(
+        "--trajectory-tdf-feature-set",
+        choices=["vdf_distance", "all"],
+        default="vdf_distance",
+        help="Feature subset to save for --save-trajectory-tdf. vdf_distance is closest to GeoPT VDF and keeps storage small.",
+    )
     parser.add_argument(
         "--condition-schema",
         choices=["legacy", "d1_thermal"],
@@ -128,9 +153,11 @@ def main() -> int:
         conds = []
         ys = []
         trajectories = []
+        trajectory_tdfs = []
         hit_masks = []
         hit_steps = []
         episode_meta = []
+        trajectory_tdf_feature_names: list[str] | None = None
         for episode_index in range(args.episodes_per_shape):
             alpha = log_uniform(rng, 0.05, 2.0)
             conductivity = log_uniform(rng, 0.1, 10.0)
@@ -212,6 +239,27 @@ def main() -> int:
                     seed=args.seed + mesh_index * 1000 + episode_index,
                 ),
             )
+            if args.save_trajectory_tdf:
+                selected_indices = trajectory_feature_indices(names, feature_set=args.trajectory_tdf_feature_set)
+                trajectory_tdf_feature_names = [names[index] for index in selected_indices]
+                future_points = trajectory.positions[1:].reshape(-1, 3)
+                future_features, future_names = thermal_diffusion_features(
+                    future_points,
+                    boundary_points,
+                    boundary_normals,
+                    config=ThermalFeatureConfig(alpha=alpha, conductivity=conductivity),
+                    source_centers=source_center,
+                    sink_centers=sink_center,
+                    return_names=True,
+                )
+                if future_names != names:
+                    raise RuntimeError(f"Trajectory feature schema mismatch: {future_names} != {names}")
+                future_tdf = future_features[:, selected_indices].reshape(
+                    args.steps,
+                    args.points_per_episode,
+                    len(selected_indices),
+                )
+                trajectory_tdfs.append(np.moveaxis(future_tdf, 0, 1))
             xs.append(query_points)
             conds.append(cond)
             ys.append(features)
@@ -236,20 +284,25 @@ def main() -> int:
             if not args.overwrite:
                 raise SystemExit(f"Shard already exists: {shard_path}")
             shutil.rmtree(shard_path)
-        zarr.save_group(
-            str(shard_path),
-            x=np.stack(xs).astype(np.float16),
-            cond=np.stack(conds).astype(np.float16),
-            y_tdf=np.stack(ys).astype(np.float16),
-            trajectory=np.stack(trajectories).astype(np.float16),
-            hit_mask=np.stack(hit_masks),
-            hit_step=np.stack(hit_steps),
-        )
+        arrays = {
+            "x": np.stack(xs).astype(np.float16),
+            "cond": np.stack(conds).astype(np.float16),
+            "y_tdf": np.stack(ys).astype(np.float16),
+            "trajectory": np.stack(trajectories).astype(np.float16),
+            "hit_mask": np.stack(hit_masks),
+            "hit_step": np.stack(hit_steps),
+        }
+        if args.save_trajectory_tdf:
+            arrays["trajectory_tdf"] = np.stack(trajectory_tdfs).astype(np.float16)
+        zarr.save_group(str(shard_path), **arrays)
         meta = {
             "processed_path": str(processed_path),
             "feature_names": feature_names,
             "condition_names": condition_names,
             "condition_schema": args.condition_schema,
+            "trajectory_tdf_feature_names": trajectory_tdf_feature_names or [],
+            "trajectory_tdf_feature_set": args.trajectory_tdf_feature_set if args.save_trajectory_tdf else None,
+            "trajectory_tdf_steps": args.steps if args.save_trajectory_tdf else 0,
             "episodes": episode_meta,
         }
         (shard_path / "meta.json").write_text(json.dumps(meta, indent=2))
@@ -277,6 +330,8 @@ def main() -> int:
         "selection": args.selection,
         "condition_schema": args.condition_schema,
         "steps": args.steps,
+        "save_trajectory_tdf": args.save_trajectory_tdf,
+        "trajectory_tdf_feature_set": args.trajectory_tdf_feature_set if args.save_trajectory_tdf else None,
         "seed": args.seed,
         "shards": shard_records,
     }

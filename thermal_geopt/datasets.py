@@ -72,7 +72,12 @@ PRETRAIN_DYNAMICS_FEATURE_NAMES = [
     "boundary_hit",
     "hit_step_norm",
 ]
-PRETRAIN_ABLATIONS = ("full", "no_boundary_field", "static_tdf_only", "dynamics_lifted")
+PRETRAIN_DIFFUSION_LIFTED_FEATURE_NAMES = [
+    "boundary_hit",
+    "boundary_survival",
+    "hit_step_norm",
+]
+PRETRAIN_ABLATIONS = ("full", "no_boundary_field", "static_tdf_only", "dynamics_lifted", "diffusion_lifted")
 PRETRAIN_CONDITION_MODES = ("full", "zero_boundary_field", "zero_all")
 
 
@@ -123,6 +128,7 @@ class PretrainZarrDataset(Dataset):
                 "no_boundary_field": "zero_boundary_field",
                 "static_tdf_only": "zero_all",
                 "dynamics_lifted": "full",
+                "diffusion_lifted": "full",
             }[ablation]
         if condition_mode not in PRETRAIN_CONDITION_MODES:
             raise ValueError(
@@ -146,16 +152,29 @@ class PretrainZarrDataset(Dataset):
         meta = _read_shard_meta(refs[0].shard_path)
         self.feature_names = list(meta.get("feature_names") or DEFAULT_PRETRAIN_FEATURE_NAMES)
         self.condition_names = list(meta.get("condition_names") or DEFAULT_PRETRAIN_CONDITION_NAMES)
+        self.trajectory_tdf_feature_names = list(meta.get("trajectory_tdf_feature_names") or [])
+        self.trajectory_tdf_steps = int(meta.get("trajectory_tdf_steps") or 0)
         if validate_schema:
             for shard_path in shard_paths[1:]:
                 shard_meta = _read_shard_meta(shard_path)
                 feature_names = list(shard_meta.get("feature_names") or DEFAULT_PRETRAIN_FEATURE_NAMES)
                 condition_names = list(shard_meta.get("condition_names") or DEFAULT_PRETRAIN_CONDITION_NAMES)
-                if feature_names != self.feature_names or condition_names != self.condition_names:
+                trajectory_tdf_feature_names = list(shard_meta.get("trajectory_tdf_feature_names") or [])
+                trajectory_tdf_steps = int(shard_meta.get("trajectory_tdf_steps") or 0)
+                if (
+                    feature_names != self.feature_names
+                    or condition_names != self.condition_names
+                    or trajectory_tdf_feature_names != self.trajectory_tdf_feature_names
+                    or trajectory_tdf_steps != self.trajectory_tdf_steps
+                ):
                     raise ValueError(
                         "Pretraining shard schema mismatch: "
-                        f"{shard_path} has feature_names={feature_names}, condition_names={condition_names}; "
-                        f"expected feature_names={self.feature_names}, condition_names={self.condition_names}"
+                        f"{shard_path} has feature_names={feature_names}, condition_names={condition_names}, "
+                        f"trajectory_tdf_feature_names={trajectory_tdf_feature_names}, "
+                        f"trajectory_tdf_steps={trajectory_tdf_steps}; "
+                        f"expected feature_names={self.feature_names}, condition_names={self.condition_names}, "
+                        f"trajectory_tdf_feature_names={self.trajectory_tdf_feature_names}, "
+                        f"trajectory_tdf_steps={self.trajectory_tdf_steps}"
                     )
         target_names = self.feature_names if ablation != "static_tdf_only" else STATIC_TDF_FEATURE_NAMES
         self.target_indices = _indices_for_names(self.feature_names, target_names)
@@ -172,6 +191,25 @@ class PretrainZarrDataset(Dataset):
                     "hit_step_norm": (start + 7, start + 8),
                 }
             )
+        elif ablation == "diffusion_lifted":
+            start = len(self.target_names)
+            self.target_names = [*self.target_names, *PRETRAIN_DIFFUSION_LIFTED_FEATURE_NAMES]
+            self.target_slices.update(
+                {
+                    "boundary_hit": (start, start + 1),
+                    "boundary_survival": (start + 1, start + 2),
+                    "hit_step_norm": (start + 2, start + 3),
+                }
+            )
+            if self.trajectory_tdf_feature_names:
+                traj_start = len(self.target_names)
+                trajectory_names = [
+                    f"trajectory_tdf_t{step}_{name}"
+                    for step in range(1, self.trajectory_tdf_steps + 1)
+                    for name in self.trajectory_tdf_feature_names
+                ]
+                self.target_names = [*self.target_names, *trajectory_names]
+                self.target_slices["trajectory_tdf"] = (traj_start, traj_start + len(trajectory_names))
 
     @staticmethod
     def _dynamics_targets(group: Any, episode: int, ids: np.ndarray) -> np.ndarray:
@@ -196,6 +234,24 @@ class PretrainZarrDataset(Dataset):
         target = np.concatenate([delta_1, delta_final, hit_mask, hit_step_norm.astype(np.float32)], axis=1)
         return target[ids].astype(np.float32)
 
+    @staticmethod
+    def _diffusion_targets(group: Any, episode: int, ids: np.ndarray) -> np.ndarray:
+        if "trajectory" not in group or "hit_mask" not in group or "hit_step" not in group:
+            raise KeyError(
+                "diffusion_lifted pretraining requires trajectory, hit_mask, and hit_step arrays in each shard."
+            )
+        trajectory = np.asarray(group["trajectory"][episode], dtype=np.float32)
+        if trajectory.ndim != 3:
+            raise ValueError(f"Expected trajectory shape (points, steps+1, 3), got {trajectory.shape}")
+        hit_mask = np.asarray(group["hit_mask"][episode], dtype=np.float32).reshape(-1, 1)
+        hit_step = np.asarray(group["hit_step"][episode], dtype=np.float32).reshape(-1, 1)
+        max_step = float(max(trajectory.shape[1] - 1, 1))
+        miss_step = max_step + 1.0
+        hit_step_norm = np.where(hit_step >= 0.0, hit_step, miss_step) / miss_step
+        survival = 1.0 - hit_mask
+        target = np.concatenate([hit_mask, survival, hit_step_norm.astype(np.float32)], axis=1)
+        return target[ids].astype(np.float32)
+
     def __len__(self) -> int:
         return len(self.refs)
 
@@ -214,10 +270,19 @@ class PretrainZarrDataset(Dataset):
         elif self.condition_mode == "zero_all":
             cond = np.zeros_like(cond)
         ids = sample_indices(x.shape[0], self.point_budget, seed=self.seed + index)
-        y = np.asarray(group["y_tdf"][episode], dtype=np.float32)[:, self.target_indices][ids]
+        y_tdf = np.asarray(group["y_tdf"][episode], dtype=np.float32)
+        y = y_tdf[:, self.target_indices][ids]
         if self.ablation == "dynamics_lifted":
             dynamics = self._dynamics_targets(group, episode, ids)
             y = np.concatenate([y, dynamics], axis=1)
+        elif self.ablation == "diffusion_lifted":
+            diffusion = self._diffusion_targets(group, episode, ids)
+            y = np.concatenate([y, diffusion], axis=1)
+            if self.trajectory_tdf_feature_names:
+                if "trajectory_tdf" not in group:
+                    raise KeyError("diffusion_lifted expected trajectory_tdf array based on shard metadata.")
+                trajectory_tdf = np.asarray(group["trajectory_tdf"][episode], dtype=np.float32)[ids]
+                y = np.concatenate([y, trajectory_tdf.reshape(trajectory_tdf.shape[0], -1)], axis=1)
         return {
             "x": torch.from_numpy(x[ids]),
             "fx": torch.from_numpy(cond[ids]),

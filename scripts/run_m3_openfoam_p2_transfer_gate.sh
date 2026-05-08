@@ -12,6 +12,7 @@ if [[ -z "${GATE_SPLIT_PATTERN:-}" ]]; then
   GATE_SPLIT_PATTERN="outputs/logs/m3_splits/d1_openfoam_block_m3_300_label_scarcity_seed{split_seed}.json"
 fi
 PRETRAIN_DYNAMICS="${PRETRAIN_DYNAMICS:-outputs/checkpoints/pretrain_r1_d1_thermal_dynamics_p2_ep20}"
+PRETRAIN_DIFFUSION="${PRETRAIN_DIFFUSION:-$PRETRAIN_DYNAMICS}"
 GATE_GROUPS="${GATE_GROUPS:-scratch dynamics_lifted}"
 TRAIN_SIZES="${TRAIN_SIZES:-10 25 50 100 200}"
 SPLIT_SEEDS="${SPLIT_SEEDS:-42 43 44}"
@@ -35,17 +36,36 @@ RUN_PREFIX="${RUN_PREFIX:-m3_openfoam_p2}"
 SUMMARY_JSON="${SUMMARY_JSON:-outputs/logs/m3_openfoam_p2_transfer_summary.json}"
 SUMMARY_MD="${SUMMARY_MD:-docs/m3_openfoam_p2_transfer_results.md}"
 SUMMARY_TITLE="${SUMMARY_TITLE:-M3 OpenFOAM P2 Transfer Gate Results}"
-SUMMARY_DESCRIPTION="${SUMMARY_DESCRIPTION:-This report summarizes solver-backed D1 OpenFOAM label-scarcity transfer runs for the P2 dynamics-lifted Thermal GeoPT checkpoint.}"
-SUMMARY_INTERPRETATION_RULE="${SUMMARY_INTERPRETATION_RULE:-A positive M3 signal means dynamics_lifted improves scratch by about 10% relative L2 at 25 or 50 labels, or reaches similar error with fewer labels, without degrading max-temperature error. If the signal is weak or negative, do not proceed to P3; review the pretext and prompt design first.}"
+SUMMARY_DESCRIPTION="${SUMMARY_DESCRIPTION:-This report summarizes solver-backed D1 OpenFOAM label-scarcity transfer runs for a selected P2 Thermal GeoPT checkpoint.}"
+SUMMARY_INTERPRETATION_RULE="${SUMMARY_INTERPRETATION_RULE:-A positive M3 signal means a pretrained group improves scratch by about 10% relative L2 at 25 or 50 labels, or reaches similar error with fewer labels, without degrading max-temperature error. If the signal is weak or negative, do not proceed to P3; review the pretext and prompt design first.}"
 DEVICE="${DEVICE:-cuda}"
 SKIP_EXISTING="${SKIP_EXISTING:-1}"
 
-for path in "$D1_MANIFEST" "$BASE_SPLIT" "$PRETRAIN_DYNAMICS/best_model.pt"; do
+for path in "$D1_MANIFEST" "$BASE_SPLIT"; do
   if [[ ! -e "$path" ]]; then
     echo "Missing required input: $path" >&2
     echo "Generate D1 labels with: OVERWRITE=1 bash scripts/run_m3_openfoam_d1_300.sh" >&2
     exit 1
   fi
+done
+
+for group in $GATE_GROUPS; do
+  case "$group" in
+    scratch)
+      ;;
+    dynamics_lifted|dynamics_lifted_no_boundary)
+      if [[ ! -e "$PRETRAIN_DYNAMICS/best_model.pt" ]]; then
+        echo "Missing pretrained checkpoint for ${group}: $PRETRAIN_DYNAMICS/best_model.pt" >&2
+        exit 1
+      fi
+      ;;
+    diffusion_lifted)
+      if [[ ! -e "$PRETRAIN_DIFFUSION/best_model.pt" ]]; then
+        echo "Missing pretrained checkpoint for ${group}: $PRETRAIN_DIFFUSION/best_model.pt" >&2
+        exit 1
+      fi
+      ;;
+  esac
 done
 
 run_train() {
@@ -54,6 +74,7 @@ run_train() {
   BASE_SPLIT="$BASE_SPLIT" \
   GATE_SPLIT_PATTERN="$GATE_SPLIT_PATTERN" \
   PRETRAIN_DYNAMICS="$PRETRAIN_DYNAMICS" \
+  PRETRAIN_DIFFUSION="$PRETRAIN_DIFFUSION" \
   GATE_GROUPS="$GATE_GROUPS" \
   TRAIN_SIZES="$TRAIN_SIZES" \
   SPLIT_SEEDS="$SPLIT_SEEDS" \

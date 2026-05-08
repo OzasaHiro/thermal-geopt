@@ -91,6 +91,8 @@ $PY scripts/train_pretrain.py \
 
 Do not use the old `pretrain_r1_d1_thermal_dynamics_p2_ep20` checkpoint for new transfer claims. It has no validation selection and no normalization contract.
 
+R2 itself is also not the recommended target design after the 2026-05-08 review: individual Brownian displacement regression is too noisy because the random increments are not model inputs. The R3 recommendation is `diffusion_lifted`, which keeps the GeoPT-like boundary/diffusion principle but drops displacement regression. See `docs/r3_diffusion_lifted_pretraining_plan_2026-05-08.md`.
+
 ### 2. Aligned M3 Transfer Gate
 
 Run this after the R2 checkpoint exists:
@@ -138,4 +140,3 @@ CPU-only smoke tests completed:
 - pretraining with `--val-fraction 0.25 --normalization standardize`;
 - fine-tuning with `--normalization-protocol pretrained`;
 - evaluation with new thermal metrics and coordinate normalization.
-

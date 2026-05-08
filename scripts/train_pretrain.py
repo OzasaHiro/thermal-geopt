@@ -42,7 +42,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--best-metric", choices=["auto", "train_loss", "val_loss"], default="auto")
     parser.add_argument(
         "--pretext-ablation",
-        choices=["full", "no_boundary_field", "static_tdf_only", "dynamics_lifted"],
+        choices=["full", "no_boundary_field", "static_tdf_only", "dynamics_lifted", "diffusion_lifted"],
         default="full",
         help="Select the pretraining target/prompt ablation without regenerating Zarr shards.",
     )
@@ -56,8 +56,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--weight-decay", type=float, default=1e-5)
     parser.add_argument("--tdf-loss-weight", type=float, default=1.0)
     parser.add_argument("--trajectory-loss-weight", type=float, default=1.0)
+    parser.add_argument(
+        "--trajectory-tdf-loss-weight",
+        type=float,
+        default=1.0,
+        help="Weight for optional TDF/VDF trajectory targets saved by --save-trajectory-tdf.",
+    )
     parser.add_argument("--hit-mask-loss-weight", type=float, default=1.0)
     parser.add_argument("--hit-step-loss-weight", type=float, default=1.0)
+    parser.add_argument(
+        "--diffusion-loss-weight",
+        type=float,
+        default=1.0,
+        help="Weight for diffusion_lifted boundary hit/survival targets.",
+    )
     parser.add_argument("--n-hidden", type=int, default=256)
     parser.add_argument("--n-layers", type=int, default=8)
     parser.add_argument("--n-heads", type=int, default=8)
@@ -131,6 +143,36 @@ def pretrain_loss(
     args: argparse.Namespace,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     if "brownian_delta_1" not in target_slices:
+        if "boundary_survival" in target_slices:
+            tdf_start, tdf_end = target_slices["tdf"]
+            hit_start, hit_end = target_slices["boundary_hit"]
+            survival_start, survival_end = target_slices["boundary_survival"]
+            hit_step_start, hit_step_end = target_slices["hit_step_norm"]
+            tdf = _slice_loss(pred, target, tdf_start, tdf_end)
+            hit = F.smooth_l1_loss(pred[..., hit_start:hit_end], target[..., hit_start:hit_end])
+            survival = F.smooth_l1_loss(pred[..., survival_start:survival_end], target[..., survival_start:survival_end])
+            hit_step = F.smooth_l1_loss(pred[..., hit_step_start:hit_step_end], target[..., hit_step_start:hit_step_end])
+            diffusion = 0.5 * (hit + survival) + hit_step
+            trajectory_tdf = pred.new_tensor(0.0)
+            if "trajectory_tdf" in target_slices:
+                traj_start, traj_end = target_slices["trajectory_tdf"]
+                trajectory_tdf = F.smooth_l1_loss(pred[..., traj_start:traj_end], target[..., traj_start:traj_end])
+            loss = (
+                args.tdf_loss_weight * tdf
+                + args.diffusion_loss_weight * diffusion
+                + args.trajectory_tdf_loss_weight * trajectory_tdf
+            )
+            components = {
+                "loss_total": float(loss.detach().cpu()),
+                "loss_tdf": float(tdf.detach().cpu()),
+                "loss_boundary_hit": float(hit.detach().cpu()),
+                "loss_boundary_survival": float(survival.detach().cpu()),
+                "loss_hit_step_norm": float(hit_step.detach().cpu()),
+                "loss_diffusion_lifted": float(diffusion.detach().cpu()),
+            }
+            if "trajectory_tdf" in target_slices:
+                components["loss_trajectory_tdf"] = float(trajectory_tdf.detach().cpu())
+            return loss, components
         loss = F.mse_loss(pred, target)
         return loss, {"mse": float(loss.detach().cpu())}
 
@@ -321,8 +363,10 @@ def main() -> int:
         "loss_weights": {
             "tdf": args.tdf_loss_weight,
             "trajectory": args.trajectory_loss_weight,
+            "trajectory_tdf": args.trajectory_tdf_loss_weight,
             "hit_mask": args.hit_mask_loss_weight,
             "hit_step": args.hit_step_loss_weight,
+            "diffusion_lifted": args.diffusion_loss_weight,
         },
         "lr": args.lr,
         "weight_decay": args.weight_decay,

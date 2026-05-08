@@ -307,6 +307,84 @@ $PY scripts/train_pretrain.py \
 
 詳細は `docs/r1_dynamics_lifted_pretraining.md` を参照。
 
+R3: GeoPTらしさを優先したシンプルな diffusion-lifted pretraining。
+R2の個別Brownian displacement回帰は使わず、TDF補助 + boundary hit/survival/hit time を学習する。
+既存P2 shardをそのまま使えるため、pretraining data再生成は不要。
+
+```bash
+$PY scripts/check_pretrain_readiness.py \
+  data/pretrain_zarr/cadquery_p2_d1_thermal_2000_e20_n8192/manifest.json \
+  --require-phase P2 \
+  --ablation diffusion_lifted
+```
+
+```bash
+$PY scripts/train_pretrain.py \
+  --manifest data/pretrain_zarr/cadquery_p2_d1_thermal_2000_e20_n8192/manifest.json \
+  --output-dir outputs/checkpoints/pretrain_r3_diffusion_lifted_p2_norm_val_ep20 \
+  --epochs 20 \
+  --batch-size 1 \
+  --point-budget 8192 \
+  --max-episodes 0 \
+  --val-fraction 0.05 \
+  --normalization standardize \
+  --normalization-max-episodes 2048 \
+  --target-min-std 0.05 \
+  --pretext-ablation diffusion_lifted \
+  --tdf-loss-weight 0.2 \
+  --diffusion-loss-weight 1.0 \
+  --trajectory-tdf-loss-weight 1.0 \
+  --lr 1e-3 \
+  --weight-decay 1e-5 \
+  --amp \
+  --amp-dtype bfloat16 \
+  --device cuda
+```
+
+よりGeoPTのVDF trajectoryに近いR3bを試す場合は、P2 shardをtrajectory TDF付きで再生成する:
+
+```bash
+$PY scripts/generate_pretrain_episodes.py \
+  --processed-dir data/meshes_processed/cadquery_p2_2100 \
+  --output-dir data/pretrain_zarr/cadquery_p2_d1_thermal_2000_e20_n8192_trajtdf \
+  --max-shapes 2000 \
+  --selection balanced \
+  --episodes-per-shape 20 \
+  --points-per-episode 8192 \
+  --steps 3 \
+  --condition-schema d1_thermal \
+  --save-trajectory-tdf \
+  --trajectory-tdf-feature-set vdf_distance \
+  --seed 42 \
+  --overwrite
+```
+
+R3 M3 transfer gate:
+
+```bash
+PY=../../.venv/bin/python \
+PRETRAIN_DIFFUSION=outputs/checkpoints/pretrain_r3_diffusion_lifted_p2_norm_val_ep20 \
+NORMALIZATION_PROTOCOL=pretrained \
+NORMALIZATION_CONFIG=outputs/checkpoints/pretrain_r3_diffusion_lifted_p2_norm_val_ep20/config.json \
+RUN_PREFIX=m3_openfoam_p2_r3_diffusion_oclr \
+EPOCHS=100 \
+TRAIN_SIZES="10 25 50 100" \
+SPLIT_SEEDS="42 43 44" \
+TRAIN_SEEDS="42" \
+POINT_BUDGET=3072 \
+EVAL_POINT_BUDGET=3072 \
+GATE_GROUPS="scratch diffusion_lifted" \
+FINETUNE_SCHEDULER=onecycle \
+PRETRAINED_BACKBONE_LR=3e-4 \
+PRETRAINED_HEAD_LR=1e-3 \
+FREEZE_PRETRAINED_BACKBONE_EPOCHS=5 \
+MAX_GRAD_NORM=1.0 \
+MODE=all \
+bash scripts/run_m3_openfoam_p2_transfer_gate.sh
+```
+
+詳細は `docs/r3_diffusion_lifted_pretraining_plan_2026-05-08.md` を参照。
+
 ## 7. M1 solver-backed D1 OpenFOAM pilot
 
 OpenFOAM Foundation v13 `laplacianFoam` でD1 solid-conduction block pilotを生成する。

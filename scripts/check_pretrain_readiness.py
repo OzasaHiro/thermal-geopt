@@ -42,7 +42,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--ablation",
         action="append",
-        choices=["full", "no_boundary_field", "static_tdf_only", "dynamics_lifted"],
+        choices=["full", "no_boundary_field", "static_tdf_only", "dynamics_lifted", "diffusion_lifted"],
         default=None,
         help="Dataset ablation to instantiate. Repeatable. Defaults to dynamics_lifted plus key ablations.",
     )
@@ -140,6 +140,7 @@ def inspect_shard(shard_path: Path, *, sample_points_check: int) -> dict[str, An
     traj_shape = tuple(int(dim) for dim in arrays["trajectory"].shape)
     hit_mask_shape = tuple(int(dim) for dim in arrays["hit_mask"].shape)
     hit_step_shape = tuple(int(dim) for dim in arrays["hit_step"].shape)
+    trajectory_tdf_shape = tuple(int(dim) for dim in group["trajectory_tdf"].shape) if "trajectory_tdf" in group else None
 
     if len(x_shape) != 3 or x_shape[-1] != 3:
         raise ValueError(f"{shard_path}: x must have shape (episodes, points, 3), got {x_shape}")
@@ -164,6 +165,15 @@ def inspect_shard(shard_path: Path, *, sample_points_check: int) -> dict[str, An
         "hit_mask": finite_check(arrays["hit_mask"], (slice(0, 1), point_slice)),
         "hit_step": finite_check(arrays["hit_step"], (slice(0, 1), point_slice)),
     }
+    if trajectory_tdf_shape is not None:
+        if len(trajectory_tdf_shape) != 4 or trajectory_tdf_shape[:3] != (episodes, points, traj_shape[2] - 1):
+            raise ValueError(
+                f"{shard_path}: trajectory_tdf must have shape (episodes, points, steps, features), "
+                f"got {trajectory_tdf_shape}"
+            )
+        checks["trajectory_tdf"] = finite_check(
+            group["trajectory_tdf"], (slice(0, 1), point_slice, slice(None), slice(None))
+        )
     failed = [name for name, check in checks.items() if check.get("all_finite") is False]
     if failed:
         raise ValueError(f"{shard_path}: non-finite values found in {failed}")
@@ -177,9 +187,11 @@ def inspect_shard(shard_path: Path, *, sample_points_check: int) -> dict[str, An
         "condition_dim": int(cond_shape[-1]),
         "feature_dim": int(y_shape[-1]),
         "trajectory_steps_plus_one": int(traj_shape[2]),
+        "trajectory_tdf_shape": trajectory_tdf_shape,
         "condition_schema": meta.get("condition_schema"),
         "condition_names": meta.get("condition_names"),
         "feature_names": meta.get("feature_names"),
+        "trajectory_tdf_feature_names": meta.get("trajectory_tdf_feature_names"),
         "finite_checks": checks,
     }
 
@@ -232,6 +244,8 @@ def main() -> int:
             "feature_names": report.get("feature_names"),
             "condition_dim": report.get("condition_dim"),
             "feature_dim": report.get("feature_dim"),
+            "trajectory_tdf_feature_names": report.get("trajectory_tdf_feature_names"),
+            "trajectory_tdf_shape": report.get("trajectory_tdf_shape"),
             "points_per_episode": report.get("points_per_episode"),
         }
         if schema_anchor is None:
@@ -240,7 +254,7 @@ def main() -> int:
             raise SystemExit(f"Shard schema mismatch: {report['shard']} has {schema}, expected {schema_anchor}")
         checked_shards.append(report)
 
-    ablations = args.ablation or ["dynamics_lifted", "static_tdf_only", "no_boundary_field"]
+    ablations = args.ablation or ["diffusion_lifted", "dynamics_lifted", "static_tdf_only", "no_boundary_field"]
     dataset_modes = validate_dataset_modes(args.manifest, ablations)
     warnings = []
     if phase_rank(phase) < phase_rank("P2"):
