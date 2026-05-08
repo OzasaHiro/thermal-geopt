@@ -50,7 +50,7 @@ $PY scripts/check_pretrain_readiness.py \
   --ablation diffusion_lifted
 ```
 
-R3a P2 pretraining:
+R3a P2 diagnostic pretraining:
 
 ```bash
 $PY scripts/train_pretrain.py \
@@ -70,6 +70,34 @@ $PY scripts/train_pretrain.py \
   --trajectory-tdf-loss-weight 1.0 \
   --lr 1e-3 \
   --weight-decay 1e-5 \
+  --amp \
+  --amp-dtype bfloat16 \
+  --device cuda
+```
+
+R3a P2 serious pretraining should move closer to GeoPT's training recipe: AdamW, cosine-style schedule, and substantially more epochs than the 20-epoch diagnostic run. Start with 100 epochs locally; extend to 200 if validation components are still improving.
+
+```bash
+$PY scripts/train_pretrain.py \
+  --manifest data/pretrain_zarr/cadquery_p2_d1_thermal_2000_e20_n8192/manifest.json \
+  --output-dir outputs/checkpoints/pretrain_r3_diffusion_lifted_p2_norm_val_ep100_wcos \
+  --epochs 100 \
+  --batch-size 1 \
+  --point-budget 8192 \
+  --max-episodes 0 \
+  --val-fraction 0.05 \
+  --normalization standardize \
+  --normalization-max-episodes 2048 \
+  --target-min-std 0.05 \
+  --pretext-ablation diffusion_lifted \
+  --tdf-loss-weight 0.2 \
+  --diffusion-loss-weight 1.0 \
+  --trajectory-tdf-loss-weight 1.0 \
+  --lr 1e-3 \
+  --weight-decay 1e-5 \
+  --scheduler warmup_cosine \
+  --warmup-ratio 0.05 \
+  --min-lr-scale 0.01 \
   --amp \
   --amp-dtype bfloat16 \
   --device cuda
@@ -98,8 +126,8 @@ R3b pretraining commandはR3aと同じで、manifest/outputだけ差し替える
 ```bash
 $PY scripts/train_pretrain.py \
   --manifest data/pretrain_zarr/cadquery_p2_d1_thermal_2000_e20_n8192_trajtdf/manifest.json \
-  --output-dir outputs/checkpoints/pretrain_r3b_diffusion_trajtdf_p2_norm_val_ep20 \
-  --epochs 20 \
+  --output-dir outputs/checkpoints/pretrain_r3b_diffusion_trajtdf_p2_norm_val_ep100_wcos \
+  --epochs 100 \
   --batch-size 1 \
   --point-budget 8192 \
   --max-episodes 0 \
@@ -113,6 +141,9 @@ $PY scripts/train_pretrain.py \
   --trajectory-tdf-loss-weight 1.0 \
   --lr 1e-3 \
   --weight-decay 1e-5 \
+  --scheduler warmup_cosine \
+  --warmup-ratio 0.05 \
+  --min-lr-scale 0.01 \
   --amp \
   --amp-dtype bfloat16 \
   --device cuda
@@ -140,6 +171,13 @@ FREEZE_PRETRAINED_BACKBONE_EPOCHS=5 \
 MAX_GRAD_NORM=1.0 \
 MODE=all \
 bash scripts/run_m3_openfoam_p2_transfer_gate.sh
+```
+
+For the serious 100-epoch checkpoint, replace the two pretrain paths above with:
+
+```bash
+PRETRAIN_DIFFUSION=outputs/checkpoints/pretrain_r3_diffusion_lifted_p2_norm_val_ep100_wcos
+NORMALIZATION_CONFIG=outputs/checkpoints/pretrain_r3_diffusion_lifted_p2_norm_val_ep100_wcos/config.json
 ```
 
 ## Interpretation

@@ -318,6 +318,8 @@ $PY scripts/check_pretrain_readiness.py \
   --ablation diffusion_lifted
 ```
 
+20 epochの診断run:
+
 ```bash
 $PY scripts/train_pretrain.py \
   --manifest data/pretrain_zarr/cadquery_p2_d1_thermal_2000_e20_n8192/manifest.json \
@@ -336,6 +338,34 @@ $PY scripts/train_pretrain.py \
   --trajectory-tdf-loss-weight 1.0 \
   --lr 1e-3 \
   --weight-decay 1e-5 \
+  --amp \
+  --amp-dtype bfloat16 \
+  --device cuda
+```
+
+GeoPT寄りの100 epoch本命候補。20 epoch診断でlossが破綻していない場合はこちらへ進む:
+
+```bash
+$PY scripts/train_pretrain.py \
+  --manifest data/pretrain_zarr/cadquery_p2_d1_thermal_2000_e20_n8192/manifest.json \
+  --output-dir outputs/checkpoints/pretrain_r3_diffusion_lifted_p2_norm_val_ep100_wcos \
+  --epochs 100 \
+  --batch-size 1 \
+  --point-budget 8192 \
+  --max-episodes 0 \
+  --val-fraction 0.05 \
+  --normalization standardize \
+  --normalization-max-episodes 2048 \
+  --target-min-std 0.05 \
+  --pretext-ablation diffusion_lifted \
+  --tdf-loss-weight 0.2 \
+  --diffusion-loss-weight 1.0 \
+  --trajectory-tdf-loss-weight 1.0 \
+  --lr 1e-3 \
+  --weight-decay 1e-5 \
+  --scheduler warmup_cosine \
+  --warmup-ratio 0.05 \
+  --min-lr-scale 0.01 \
   --amp \
   --amp-dtype bfloat16 \
   --device cuda

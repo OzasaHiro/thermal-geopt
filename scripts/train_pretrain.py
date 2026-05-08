@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import sys
 import time
 from pathlib import Path
@@ -54,6 +55,24 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--weight-decay", type=float, default=1e-5)
+    parser.add_argument(
+        "--scheduler",
+        choices=["none", "cosine", "warmup_cosine"],
+        default="none",
+        help="Pretraining LR scheduler. GeoPT-style serious runs should use warmup_cosine or cosine.",
+    )
+    parser.add_argument(
+        "--warmup-ratio",
+        type=float,
+        default=0.05,
+        help="Fraction of total optimization steps used for linear warmup when --scheduler warmup_cosine.",
+    )
+    parser.add_argument(
+        "--min-lr-scale",
+        type=float,
+        default=0.01,
+        help="Final LR multiplier for cosine/warmup_cosine schedules.",
+    )
     parser.add_argument("--tdf-loss-weight", type=float, default=1.0)
     parser.add_argument("--trajectory-loss-weight", type=float, default=1.0)
     parser.add_argument(
@@ -203,6 +222,36 @@ def pretrain_loss(
     }
 
 
+def create_pretrain_scheduler(
+    optimizer: torch.optim.Optimizer,
+    *,
+    args: argparse.Namespace,
+    total_steps: int,
+) -> torch.optim.lr_scheduler.LRScheduler | None:
+    if args.scheduler == "none":
+        return None
+    if total_steps <= 0:
+        raise ValueError("total_steps must be positive when a scheduler is enabled.")
+    if not 0.0 <= args.warmup_ratio < 1.0:
+        raise ValueError("--warmup-ratio must be in [0, 1).")
+    if args.min_lr_scale < 0.0:
+        raise ValueError("--min-lr-scale must be non-negative.")
+
+    warmup_steps = int(total_steps * args.warmup_ratio) if args.scheduler == "warmup_cosine" else 0
+
+    def lr_lambda(step: int) -> float:
+        if warmup_steps > 0 and step < warmup_steps:
+            return float(step + 1) / float(warmup_steps)
+        if total_steps <= warmup_steps + 1:
+            return 1.0
+        progress = float(step - warmup_steps) / float(total_steps - warmup_steps - 1)
+        progress = min(max(progress, 0.0), 1.0)
+        cosine = 0.5 * (1.0 + math.cos(math.pi * progress))
+        return float(args.min_lr_scale + (1.0 - args.min_lr_scale) * cosine)
+
+    return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
+
+
 def prepare_normalization(
     dataset: Subset,
     *,
@@ -337,6 +386,11 @@ def main() -> int:
     }
     model = create_transolver_model(vendor_root=args.geopt_vendor, model_config=model_config).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    scheduler = create_pretrain_scheduler(
+        optimizer,
+        args=args,
+        total_steps=args.epochs * max(len(train_loader), 1),
+    )
     amp_enabled = args.amp and device.type == "cuda"
     amp_dtype = torch.bfloat16 if args.amp_dtype == "bfloat16" else torch.float16
 
@@ -370,6 +424,12 @@ def main() -> int:
         },
         "lr": args.lr,
         "weight_decay": args.weight_decay,
+        "scheduler": {
+            "name": args.scheduler,
+            "warmup_ratio": args.warmup_ratio,
+            "min_lr_scale": args.min_lr_scale,
+            "total_steps": args.epochs * max(len(train_loader), 1),
+        },
         "seed": args.seed,
         "amp": amp_enabled,
         "amp_dtype": args.amp_dtype if amp_enabled else None,
@@ -398,6 +458,8 @@ def main() -> int:
                 raise RuntimeError(f"Non-finite pretrain loss at epoch {epoch}: {float(loss.detach().cpu())}")
             loss.backward()
             optimizer.step()
+            if scheduler is not None:
+                scheduler.step()
             losses.append(float(loss.detach().cpu()))
             for key, value in components.items():
                 component_sums[key] = component_sums.get(key, 0.0) + value
@@ -406,6 +468,7 @@ def main() -> int:
             "epoch": epoch,
             "train_mse": epoch_loss,
             "train_loss": epoch_loss,
+            "lr": float(optimizer.param_groups[0]["lr"]),
             "elapsed_sec": time.time() - start_time,
         }
         for key, value in sorted(component_sums.items()):
