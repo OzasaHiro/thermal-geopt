@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+title: "Thermal GeoPT: Preliminary Cross-Physics Transfer Experiments"
+message: "If you use this repository or its preliminary results, please cite it using this metadata."
+type: software
+authors:
+  - family-names: Ozasa
+    given-names: Hiroaki
+repository-code: "https://github.com/OzasaHiro/thermal-geopt"
+abstract: "Preliminary experiments showing that the original GeoPT pretrained backbone transfers to OpenFOAM-backed heat-sink solid-conduction surrogate modeling under label scarcity, while an initial thermal-specific pretraining attempt causes negative transfer."
+keywords:
+  - geometric pretraining
+  - heat transfer
+  - surrogate modeling
+  - OpenFOAM
+  - Transolver
+  - GeoPT
+version: "0.1.0-preliminary"
+date-released: "2026-05-11"

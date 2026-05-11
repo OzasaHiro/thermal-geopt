@@ -579,6 +579,109 @@ INIT_GROUPS="scratch full static_tdf_only no_boundary_field dynamics_lifted" \
 bash scripts/run_m1_openfoam_init_compare.sh
 ```
 
-## 8. Git管理
+## 8. M4 heat-sink solver-backed D1 transfer gate
+
+M1/M3のblock D1はpipeline検証用。性能検証の本命は、pretraining CAD familyに近い
+plate-fin / pin-fin のsolver-backed D1で行う。
+
+Heat-sink D1を生成:
+
+```bash
+OVERWRITE=1 bash scripts/run_m4_openfoam_heatsink_d1.sh
+```
+
+短い確認だけ先に行う場合:
+
+```bash
+CASE_COUNT=20 CELLS_X=16 CELLS_Y=16 BASE_CELLS_Z=3 FEATURE_CELLS_Z=8 OVERWRITE=1 \
+bash scripts/run_m4_openfoam_heatsink_d1.sh
+```
+
+このpilotはデフォルトで `data/downstream_npz/d1_openfoam_heatsink_m4_20/` に出力する。
+20ケースではtrain splitが14件程度なので、`TRAIN_SIZES="25 50"` は使えない。
+
+3群比較を実行:
+
+```bash
+MODE=all bash scripts/run_m4_heatsink_transfer_gate.sh
+```
+
+このM4 gateのデフォルト比較群は
+`scratch geopt_transport_lifted geopt_original`。
+
+短いtransfer確認:
+
+```bash
+TRAIN_SIZES="25 50" SPLIT_SEEDS="42" EPOCHS=50 MODE=all \
+bash scripts/run_m4_heatsink_transfer_gate.sh
+```
+
+詳細は `docs/m4_heatsink_solver_backed_d1_commands.md` を参照。
+
+## 9. M5 complex heat-sink contours
+
+公開レポート用に、M4より見栄えのする `staggered_pin_fin` を含むD1を生成する:
+
+```bash
+OVERWRITE=1 bash scripts/run_m5_openfoam_complex_heatsink_d1.sh
+```
+
+コンター図を作る:
+
+```bash
+../../.venv/bin/python scripts/visualize_d1_contours.py \
+  --manifest data/downstream_npz/d1_openfoam_complex_heatsink_m5_300/manifest.json \
+  --family staggered_pin_fin \
+  --max-cases 3 \
+  --output-dir outputs/figures/m5_complex_heatsink_contours
+```
+
+公開レポート向けの3D表面 + 内部温度スライス図:
+
+```bash
+../../.venv/bin/python scripts/render_d1_surface_temperature.py \
+  --manifest data/downstream_npz/d1_openfoam_complex_heatsink_m5_300/manifest.json \
+  --family staggered_pin_fin \
+  --max-cases 3 \
+  --output-dir outputs/figures/m5_complex_heatsink_surface_temperature
+```
+
+固定低温外表面だとフィンが冷えすぎて見えるため、説明図用には弱冷却ケースも作る:
+
+```bash
+../../.venv/bin/python scripts/generate_d1_openfoam_heatsink_cases.py \
+  --case-count 1 \
+  --families staggered_pin_fin \
+  --cells-x 20 \
+  --cells-y 20 \
+  --base-cells-z 4 \
+  --feature-cells-z 12 \
+  --source-temperature-min 520 \
+  --source-temperature-max 560 \
+  --sink-temperature-min 295 \
+  --sink-temperature-max 305 \
+  --sink-value-fraction 0.025 \
+  --raw-dir data/downstream_raw/d1_openfoam_visual_staggered_pin_weak_cooling \
+  --output-dir data/downstream_npz/d1_openfoam_visual_staggered_pin_weak_cooling \
+  --overwrite
+
+../../.venv/bin/python scripts/render_d1_surface_temperature.py \
+  --manifest data/downstream_npz/d1_openfoam_visual_staggered_pin_weak_cooling/manifest.json \
+  --family staggered_pin_fin \
+  --max-cases 1 \
+  --output-dir outputs/figures/m5_visual_weak_cooling_surface_temperature \
+  --camera-zoom 0.9
+```
+
+3群transfer gate:
+
+```bash
+TRAIN_SIZES="25 50" SPLIT_SEEDS="42 43 44" EPOCHS=50 MODE=all \
+bash scripts/run_m5_complex_heatsink_transfer_gate.sh
+```
+
+詳細は `docs/m5_complex_heatsink_contour_commands.md` を参照。
+
+## 10. Git管理
 
 生成データは `.gitignore` 対象なのでGitに入れない。コード・設定・軽量Markdownだけをコミットする。
