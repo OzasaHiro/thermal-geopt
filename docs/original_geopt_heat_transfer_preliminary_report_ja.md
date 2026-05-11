@@ -123,6 +123,18 @@ M4 および M5 の結果は同じ方向を示している。
 
 Thermal R4 の negative result も有用である。heat-themed な pretraining target を作るだけでは不十分であることを示しているためである。Thermal-specific extension は、poorly aligned synthetic task によって有用な GeoPT prior を上書きするのではなく、それを保持する必要がある。
 
+### Original GeoPT と Thermal R4 Pretraining の違い
+
+この比較は、Thermal GeoPT のコンセプトそのものを否定する結果として読むべきではない。2つの pretrained initialization は、規模も構成も大きく異なる。
+
+Original GeoPT は、はるかに大規模に学習されている。原論文では、100万を超える pretraining samples を、多様な off-the-shelf geometries と dynamics-lifted geometric self-supervision によって用いたことが報告されている。その target は thermal conduction そのものではなく、generic geometry-boundary-dynamics prior である。
+
+一方、現在の Thermal R4 pretraining は、この project 内で作成した、はるかに小規模な thermal-motivated prototype である。geometry families は限定的であり、synthetic target もより specific である。したがって、この negative transfer が示しているのは、この R4 design と scale が downstream task にまだ整合していないということである。thermal-specific GeoPT pretraining が不可能、あるいは本質的に無益であることを示すものではない。
+
+より重要な signal は、original GeoPT からの positive transfer である。ここで用いた checkpoint は thermal labels で学習されていないにもかかわらず、solver-backed heat conduction を改善した。Original GeoPT 論文では、同じ lifted geometric pretraining が fluid mechanics だけでなく solid mechanics benchmark にも有効であることが報告されている。この結果と合わせると、single dynamics-lifted geometric pretraining が複数の simulation families に対する reusable initialization になり得る、というより広い仮説を補強している。
+
+次の Thermal GeoPT iteration では、この general GeoPT prior を保持しながら thermal relevance を追加することが重要である。考えられる方向性としては、original GeoPT からの continued pretraining、lightweight thermal adapters、あるいはより大規模で多様な thermal-lifted pretraining dataset がある。いずれの場合も、original GeoPT を strong control として比較し続ける必要がある。
+
 ## 可視化例
 
 コミュニケーション用途として、現時点で最も適した図は、3D heat-sink surface と internal temperature cut plane を組み合わせたものである。weak-cooling case は M4/M5 benchmark data とは別であり、説明用の visualization のみを意図している。
@@ -208,6 +220,7 @@ OpenFOAM case directories、NPZ datasets、checkpoints、full logs、大量の g
 - downstream task は solid conduction であり、conjugate heat transfer ではない。
 - pin-fin geometry は blockMesh-friendly で rectangularized されたものであり、fully resolved industrial heat sink ではない。
 - original GeoPT checkpoint は external pretrained control として使用しており、この report では再配布していない。
+- original GeoPT と Thermal R4 pretraining は、data scale、geometry diversity、pretraining target が大きく異なる。そのため、R4 の negative result は Thermal GeoPT concept に対する controlled ablation ではない。
 - Thermal GeoPT R4 の negative result は、現在の R4 pretraining design に対する結果であり、あらゆる thermal-specific GeoPT extension を否定するものではない。
 
 ## 公開時の推奨表現

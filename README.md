@@ -13,6 +13,11 @@ Across two solver-backed D1 heat-sink benchmarks, the original GeoPT backbone
 outperformed scratch training at 25 and 50 downstream labels.  The current
 Thermal-specific R4 pretraining caused negative transfer.
 
+This does not reject thermal-specific GeoPT pretraining as a concept: the R4
+prototype is much smaller and narrower than original GeoPT.  The stronger signal
+is that original GeoPT's geometry-boundary-dynamics prior appears reusable for
+heat-transfer surrogate modeling.
+
 See:
 
 - `docs/original_geopt_heat_transfer_preliminary_report.md`

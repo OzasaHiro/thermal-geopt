@@ -143,6 +143,37 @@ heat-themed pretraining target is not enough.  A thermal-specific extension
 must preserve the useful GeoPT prior instead of overwriting it with a poorly
 aligned synthetic task.
 
+### Original GeoPT vs Thermal R4 Pretraining
+
+The comparison should not be read as a rejection of the Thermal GeoPT concept.
+The two pretrained initializations are very different in scale and construction.
+
+Original GeoPT was trained at much larger scale: the paper reports more than
+one million pretraining samples from diverse off-the-shelf geometries with
+dynamics-lifted geometric self-supervision.  Its target is not thermal
+conduction itself; it is a generic geometry-boundary-dynamics prior.
+
+The current Thermal R4 pretraining is a project-local, much smaller
+thermal-motivated prototype with narrower geometry families and a more specific
+synthetic target.  Its negative transfer therefore says that this particular R4
+design and scale are not yet aligned with the downstream task.  It does not
+show that thermal-specific GeoPT pretraining is impossible or intrinsically
+unhelpful.
+
+The more important signal is the positive transfer from original GeoPT.  The
+checkpoint used here was not trained with thermal labels, yet it improves
+solver-backed heat conduction.  Combined with the original GeoPT paper's report
+that the same lifted geometric pretraining benefits both fluid and solid
+mechanics benchmarks, this result strengthens the broader hypothesis that a
+single dynamics-lifted geometric pretraining can provide a reusable
+initialization across multiple simulation families.
+
+For the next Thermal GeoPT iteration, the goal should be to preserve this
+general GeoPT prior while adding thermal relevance.  Plausible directions are
+continued pretraining from original GeoPT, lightweight thermal adapters, or a
+larger and more diverse thermal-lifted pretraining dataset, always evaluated
+against original GeoPT as a strong control.
+
 ## Visual Example
 
 For communication, the best current figure is a 3D heat-sink surface plus an
@@ -235,6 +266,9 @@ This is not a final paper-level claim.
   resolved industrial heat sink.
 - The original GeoPT checkpoint is used as an external pretrained control and
   is not redistributed by this report.
+- The original GeoPT and Thermal R4 pretraining runs differ substantially in
+  data scale, geometry diversity, and pretraining target, so the R4 negative
+  result is not a controlled ablation of the Thermal GeoPT concept.
 - The Thermal GeoPT R4 negative result applies to the current R4 pretraining
   design, not to every possible thermal-specific GeoPT extension.
 
