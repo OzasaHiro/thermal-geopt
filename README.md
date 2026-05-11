@@ -16,6 +16,7 @@ Thermal-specific R4 pretraining caused negative transfer.
 See:
 
 - `docs/original_geopt_heat_transfer_preliminary_report.md`
+- `docs/original_geopt_heat_transfer_preliminary_report_ja.md`
 - `docs/m4_heatsink_transfer_results.md`
 - `docs/m5_complex_heatsink_transfer_results.md`
 - `docs/public_release_checklist.md`
@@ -29,6 +30,34 @@ The initial Thermal GeoPT direction was to avoid a single scalar
 `TDF = distance * conductivity` definition and explore multi-channel thermal
 diffusion features.  The current strongest result, however, is the original
 GeoPT cross-physics transfer finding summarized above.
+
+## Visual Example
+
+![Weak-cooling staggered-pin heat-sink surface temperature](docs/assets/figures/m5_weak_cooling_surface_temperature.png)
+
+Annotated view:
+
+- Left: 3D surface temperature on a staggered-pin heat-sink geometry.
+- Center: internal cut plane showing heat propagation from the heated base into the fins.
+- Right: top layout of the same heat-sink case, included to make the geometry arrangement readable.
+- This weak-cooling case is an explanatory visualization only.  It is separate from the M4/M5 benchmark data used for the quantitative transfer results.
+
+## Original GeoPT Reference
+
+This project is motivated by the lifted geometric pre-training idea proposed in:
+
+Wu, Haixu; Guo, Minghao; Li, Zongyi; Dou, Zhiyang; Long, Mingsheng; He, Kaiming; Matusik, Wojciech.
+**GeoPT: Scaling Physics Simulation via Lifted Geometric Pre-Training.** arXiv:2602.20399v1, 2026.
+https://arxiv.org/abs/2602.20399
+
+```bibtex
+@article{wu2026geopt,
+  title = {GeoPT: Scaling Physics Simulation via Lifted Geometric Pre-Training},
+  author = {Wu, Haixu and Guo, Minghao and Li, Zongyi and Dou, Zhiyang and Long, Mingsheng and He, Kaiming and Matusik, Wojciech},
+  journal = {arXiv preprint arXiv:2602.20399},
+  year = {2026}
+}
+```
 
 ## Initial Scope
 
