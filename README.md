@@ -80,6 +80,14 @@ terms, and exact pretrained-model provenance.
 }
 ```
 
+## License
+
+- Code and scripts are licensed under the MIT License.  See `LICENSE`.
+- Reports, documentation, and selected figures are licensed under CC-BY-4.0.
+  See `LICENSE-DOCS.md`.
+- The original GeoPT paper and checkpoint are external to this repository and
+  are not redistributed here.
+
 ## Initial Scope
 
 1. Build a small, reproducible OpenFOAM-solved solid-conduction benchmark before CHT.

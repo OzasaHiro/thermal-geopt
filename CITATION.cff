@@ -6,7 +6,7 @@ authors:
   - family-names: Ozasa
     given-names: Hiroaki
 repository-code: "https://github.com/OzasaHiro/thermal-geopt"
-abstract: "Preliminary experiments showing that the original GeoPT pretrained backbone transfers to OpenFOAM-backed heat-sink solid-conduction surrogate modeling under label scarcity, while an initial thermal-specific pretraining attempt causes negative transfer."
+abstract: "Preliminary checkpoint-transfer experiments showing that a Transolver initialized from shape-compatible tensors of the original GeoPT checkpoint improves mean Relative L2 over scratch training in OpenFOAM-solved heat-sink solid-conduction benchmarks, while a small project-local thermal-specific pretraining prototype shows negative transfer under the same evaluation protocol."
 keywords:
   - geometric pretraining
   - heat transfer
