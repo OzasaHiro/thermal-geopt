@@ -6,6 +6,7 @@ authors:
   - family-names: Ozasa
     given-names: Hiroaki
 repository-code: "https://github.com/OzasaHiro/thermal-geopt"
+doi: "10.5281/zenodo.20130627"
 abstract: "Preliminary checkpoint-transfer experiments showing that a Transolver initialized from shape-compatible tensors of the original GeoPT checkpoint improves mean Relative L2 over scratch training in OpenFOAM-solved heat-sink solid-conduction benchmarks, while a small project-local thermal-specific pretraining prototype shows negative transfer under the same evaluation protocol."
 keywords:
   - geometric pretraining
@@ -15,4 +16,4 @@ keywords:
   - Transolver
   - GeoPT
 version: "0.1.0-preliminary"
-date-released: "2026-05-11"
+date-released: "2026-05-12"

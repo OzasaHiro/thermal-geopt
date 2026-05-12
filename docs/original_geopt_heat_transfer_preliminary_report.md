@@ -2,6 +2,8 @@
 
 Date: 2026-05-11
 Repository: `OzasaHiro/thermal-geopt`
+Version DOI: https://doi.org/10.5281/zenodo.20130627
+Concept DOI: https://doi.org/10.5281/zenodo.20130626
 Status: preliminary technical report, not a peer-reviewed paper
 
 ## Summary

@@ -1,5 +1,7 @@
 # Thermal GeoPT
 
+[![DOI](https://zenodo.org/badge/1231333716.svg)](https://doi.org/10.5281/zenodo.20130626)
+
 Thermal GeoPT is an experimental heat-transfer adaptation of GeoPT's dynamics-lifted geometric pre-training idea for surrogate modeling.
 
 ## Preliminary Finding
@@ -79,6 +81,15 @@ terms, and exact pretrained-model provenance.
   year = {2026}
 }
 ```
+
+## Citation
+
+Archived release:
+
+- Version DOI: https://doi.org/10.5281/zenodo.20130627
+- Concept DOI: https://doi.org/10.5281/zenodo.20130626
+
+Use `CITATION.cff` for citation metadata.
 
 ## License
 
