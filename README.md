@@ -35,11 +35,6 @@ See:
 - `docs/m5_complex_heatsink_transfer_results.md`
 - `docs/public_release_checklist.md`
 
-The working research direction is based on:
-
-- `thermal_geopt_research_plan_draft.md`
-- `thermal_geopt_detailed_research_plan.md`
-
 The initial Thermal GeoPT direction was to avoid a single scalar thermal
 diffusion feature, `TDF = distance * conductivity`, and explore multi-channel
 thermal diffusion features.  The current strongest result, however, is the

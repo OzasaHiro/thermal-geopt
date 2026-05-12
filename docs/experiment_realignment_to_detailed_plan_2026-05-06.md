@@ -6,7 +6,8 @@ The experiment drifted too far toward proxy/pipeline checks. That was useful for
 
 > Validate whether GeoPT-style dynamics-lifted pretraining improves heat-transfer surrogate modeling.
 
-The detailed plan in `thermal_geopt_detailed_research_plan.md` is the authority from this point onward.
+This note records the course correction from proxy/pipeline checks toward
+solver-generated heat-transfer benchmarks.
 
 ## Correction Of Course
 
